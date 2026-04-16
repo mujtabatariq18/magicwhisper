@@ -94,6 +94,9 @@ contextBridge.exposeInMainWorld('magicAPI', {
   hideWindow: () => ipcRenderer.send('hide-window'),
   minimizeWindow: () => ipcRenderer.send('minimize-window'),
 
+  // ─── Overlay Appearance ────────────────────────────────
+  updateOverlayAppearance: (settings) => ipcRenderer.send('update-overlay-appearance', settings),
+
   // ─── Event Listeners ──────────────────────────────────
   onRecordingState: (callback) => {
     ipcRenderer.on('recording-state', (event, state) => callback(state));

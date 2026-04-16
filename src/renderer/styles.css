@@ -1367,3 +1367,181 @@ body {
   opacity: 0.9;
   margin-top: 1px;
 }
+
+/* ─── Model Selector Radio ─── */
+.model-radio-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  padding: 2px 0;
+}
+
+.model-radio-label input[type="radio"] {
+  accent-color: var(--accent-purple);
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  cursor: pointer;
+}
+
+.model-radio-text {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.model-badge {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  text-transform: uppercase;
+}
+
+.model-badge.best {
+  background: linear-gradient(135deg, #7C5CFC, #A78BFA);
+  color: white;
+}
+
+.model-badge.budget {
+  background: rgba(52, 199, 89, 0.15);
+  color: #2DA44E;
+}
+
+.model-badge.legacy {
+  background: var(--bg-surface-alt);
+  color: var(--text-secondary);
+}
+
+/* ─── Cost Estimator ─── */
+.cost-slider-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.cost-slider {
+  flex: 1;
+  -webkit-appearance: none;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border);
+  outline: none;
+}
+
+.cost-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--accent-purple);
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(124, 92, 252, 0.35);
+  transition: transform 0.15s ease;
+}
+
+.cost-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+
+.cost-value {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  min-width: 56px;
+  text-align: right;
+}
+
+.cost-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  width: 100%;
+}
+
+.cost-card {
+  background: var(--bg-surface-alt);
+  border-radius: 10px;
+  padding: 14px 10px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cost-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  font-weight: 600;
+}
+
+.cost-amount {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--accent-purple);
+}
+
+/* ─── Color Picker ─── */
+.color-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.color-input {
+  -webkit-appearance: none;
+  width: 32px;
+  height: 32px;
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  padding: 0;
+  background: none;
+}
+
+.color-input::-webkit-color-swatch-wrapper {
+  padding: 2px;
+}
+
+.color-input::-webkit-color-swatch {
+  border: none;
+  border-radius: 5px;
+}
+
+.color-hex {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* ─── Select Dropdown (Mini) ─── */
+.select-mini {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 28px 6px 10px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--text);
+  cursor: pointer;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%236B6B6B' fill='none' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  transition: border-color 0.2s;
+}
+
+.select-mini:hover {
+  border-color: var(--accent-purple);
+}
+
+.select-mini:focus {
+  outline: none;
+  border-color: var(--accent-purple);
+  box-shadow: 0 0 0 3px var(--accent-purple-light);
+}

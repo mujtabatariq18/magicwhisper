@@ -53,10 +53,17 @@ const DEFAULTS = {
     whisperThreads: 'auto',
 
     // Cloud Transcription (OpenAI API)
-    cloudApiKey: '',              // OpenAI API key
-    cloudEnabled: false,          // Enable cloud transcription
-    cloudPriority: false,         // Give cloud priority over local
-    cloudModel: 'whisper-1'       // OpenAI model name
+    cloudApiKey: '',                      // OpenAI API key
+    cloudEnabled: false,                  // Enable cloud transcription
+    cloudPriority: false,                 // Give cloud priority over local
+    cloudModel: 'gpt-4o-transcribe',      // Best accuracy model
+    cloudDailyMinutes: 30,                // For cost estimation
+
+    // Overlay Appearance
+    overlayIdleIcon: 'wave',              // 'mic', 'wave', 'dot', 'ring'
+    waveformColor: '#ffffff',             // Waveform bar color
+    waveformBars: 10,                     // Number of waveform bars
+    trayIconColor: '#ffffff'              // Tray icon SVG color
   }
 };
 

@@ -633,6 +633,10 @@ async function loadAdvancedInfo() {
 
     // Load cloud transcription status
     await loadCloudStatus();
+
+    // Init model selector and overlay appearance
+    initModelSelector();
+    initOverlayAppearance();
   } catch (e) {}
 }
 
@@ -789,6 +793,102 @@ async function clearAllData() {
   loadHomeHistory();
 }
 
+// ── Cloud Model Selector ────────────────────────────────
+
+const MODEL_COSTS = {
+  'gpt-4o-transcribe':      0.006,  // $/min
+  'gpt-4o-mini-transcribe': 0.003,
+  'whisper-1':              0.006
+};
+
+async function setCloudModel(model) {
+  currentSettings.cloudModel = model;
+  saveSetting('cloudModel', model);
+  await window.magicAPI.saveCloudConfig({ model });
+  updateCostEstimate();
+  const name = model === 'gpt-4o-transcribe' ? 'GPT-4o Transcribe (Best)' :
+               model === 'gpt-4o-mini-transcribe' ? 'GPT-4o Mini (Budget)' : 'Whisper-1 (Legacy)';
+  showToast(`Model set to ${name}`);
+}
+
+function updateCostEstimate() {
+  const slider = document.getElementById('cost-daily-minutes');
+  if (!slider) return;
+  const minutes = parseInt(slider.value, 10);
+  const model = currentSettings.cloudModel || 'gpt-4o-transcribe';
+  const rate = MODEL_COSTS[model] || 0.006;
+
+  const perDay = minutes * rate;
+  const perMonth = perDay * 30;
+  const perYear = perDay * 365;
+
+  document.getElementById('cost-daily-value').textContent = `${minutes} min`;
+  document.getElementById('cost-per-day').textContent = `$${perDay.toFixed(2)}`;
+  document.getElementById('cost-per-month').textContent = `$${perMonth.toFixed(2)}`;
+  document.getElementById('cost-per-year').textContent = `$${perYear.toFixed(2)}`;
+
+  // Save daily minutes preference
+  currentSettings.cloudDailyMinutes = minutes;
+  saveSetting('cloudDailyMinutes', minutes);
+}
+
+function initModelSelector() {
+  const model = currentSettings.cloudModel || 'gpt-4o-transcribe';
+  const radios = document.querySelectorAll('input[name="cloud-model"]');
+  radios.forEach(r => { r.checked = r.value === model; });
+
+  const slider = document.getElementById('cost-daily-minutes');
+  if (slider) {
+    slider.value = currentSettings.cloudDailyMinutes || 30;
+  }
+  updateCostEstimate();
+}
+
+// ── Overlay Appearance Settings ─────────────────────────
+
+async function setOverlaySetting(key, value) {
+  currentSettings[key] = value;
+  saveSetting(key, value);
+
+  // Update hex display for color pickers
+  if (key === 'waveformColor') {
+    const hex = document.getElementById('waveform-color-hex');
+    if (hex) hex.textContent = value;
+  }
+  if (key === 'trayIconColor') {
+    const hex = document.getElementById('tray-color-hex');
+    if (hex) hex.textContent = value;
+  }
+
+  // Send to main process to update overlay/tray in real-time
+  if (window.magicAPI.updateOverlayAppearance) {
+    window.magicAPI.updateOverlayAppearance({ [key]: value });
+  }
+
+  const labels = {
+    overlayIdleIcon: 'Idle icon',
+    waveformColor: 'Waveform color',
+    waveformBars: 'Waveform bars',
+    trayIconColor: 'Tray icon color'
+  };
+  showToast(`${labels[key] || key} updated`);
+}
+
+function initOverlayAppearance() {
+  const iconSelect = document.getElementById('overlay-idle-icon');
+  if (iconSelect) iconSelect.value = currentSettings.overlayIdleIcon || 'wave';
+
+  const wfColor = document.getElementById('waveform-color-picker');
+  const wfHex = document.getElementById('waveform-color-hex');
+  if (wfColor) wfColor.value = currentSettings.waveformColor || '#ffffff';
+  if (wfHex) wfHex.textContent = currentSettings.waveformColor || '#ffffff';
+
+  const trayColor = document.getElementById('tray-color-picker');
+  const trayHex = document.getElementById('tray-color-hex');
+  if (trayColor) trayColor.value = currentSettings.trayIconColor || '#ffffff';
+  if (trayHex) trayHex.textContent = currentSettings.trayIconColor || '#ffffff';
+}
+
 // ── Setup ───────────────────────────────────────────────
 
 async function startSetup() {
@@ -883,6 +983,14 @@ async function stopMicCapture(duration) {
     if (audioStream) {
       audioStream.getTracks().forEach(track => track.stop());
       audioStream = null;
+    }
+
+    // 🔴 CRITICAL: Release the persistent mic stream so macOS
+    // stops showing the mic indicator in the toolbar.
+    // It will be re-acquired on the next recording start.
+    if (persistentMicStream) {
+      persistentMicStream.getTracks().forEach(track => track.stop());
+      persistentMicStream = null;
     }
 
     const pcmChunks = window._pcmChunks || [];

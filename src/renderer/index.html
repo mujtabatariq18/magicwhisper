@@ -369,8 +369,46 @@
               <label class="toggle"><input type="checkbox" id="toggle-logging" checked onchange="toggleLogging(this.checked)"><span class="toggle-slider"></span></label>
             </div>
           </div>
-        </div>
-      </div>
+
+          <h3 class="settings-section-label">Overlay Appearance</h3>
+          <p class="settings-section-desc">Customize the floating overlay widget and tray icon.</p>
+          <div class="settings-group">
+            <div class="setting-row">
+              <div class="setting-info">
+                <label>Idle Icon Style</label>
+                <span class="setting-desc">Icon shown when not recording</span>
+              </div>
+              <select id="overlay-idle-icon" class="select-mini" onchange="setOverlaySetting('overlayIdleIcon', this.value)">
+                <option value="wave">Wave Bars</option>
+                <option value="mic">Microphone</option>
+                <option value="dot">Glowing Dot</option>
+                <option value="ring">Pulse Ring</option>
+              </select>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <label>Waveform Color</label>
+                <span class="setting-desc">Color of recording animation bars</span>
+              </div>
+              <div class="color-picker-row">
+                <input type="color" id="waveform-color-picker" value="#ffffff" onchange="setOverlaySetting('waveformColor', this.value)" class="color-input">
+                <span id="waveform-color-hex" class="color-hex">#ffffff</span>
+              </div>
+            </div>
+            <div class="setting-row last">
+              <div class="setting-info">
+                <label>Tray Icon Color</label>
+                <span class="setting-desc">Color of the menu bar icon</span>
+              </div>
+              <div class="color-picker-row">
+                <input type="color" id="tray-color-picker" value="#ffffff" onchange="setOverlaySetting('trayIconColor', this.value)" class="color-input">
+                <span id="tray-color-hex" class="color-hex">#ffffff</span>
+              </div>
+            </div>
+          </div>
+
+        </div>  <!-- close settings-page-content -->
+      </div>  <!-- close page-settings-system -->
 
       <!-- ═══ SETTINGS: MODELS ═══ -->
       <div class="page" id="page-settings-models">
@@ -445,6 +483,81 @@
                 <span class="setting-desc" id="cloud-connection-status">Unknown</span>
               </div>
               <button class="btn-beige" onclick="checkCloudConnection()">Test</button>
+            </div>
+          </div>
+
+          <h3 class="settings-section-label">Transcription Model</h3>
+          <p class="settings-section-desc">
+            Choose the OpenAI model for cloud transcription. Higher accuracy models cost the same or more per minute.
+          </p>
+          <div class="settings-group">
+            <div class="setting-row">
+              <div class="setting-info" style="flex:1">
+                <label class="model-radio-label">
+                  <input type="radio" name="cloud-model" value="gpt-4o-transcribe" onchange="setCloudModel(this.value)">
+                  <span class="model-radio-text">
+                    <strong>GPT-4o Transcribe</strong>
+                    <span class="model-badge best">★ Best Accuracy</span>
+                  </span>
+                </label>
+                <span class="setting-desc">Lowest word error rate. Best for noisy audio, accents, technical speech. <strong>$0.006/min</strong></span>
+              </div>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info" style="flex:1">
+                <label class="model-radio-label">
+                  <input type="radio" name="cloud-model" value="gpt-4o-mini-transcribe" onchange="setCloudModel(this.value)">
+                  <span class="model-radio-text">
+                    <strong>GPT-4o Mini Transcribe</strong>
+                    <span class="model-badge budget">Budget</span>
+                  </span>
+                </label>
+                <span class="setting-desc">50% cheaper, still GPT-4o quality. Great for clean audio. <strong>$0.003/min</strong></span>
+              </div>
+            </div>
+            <div class="setting-row last">
+              <div class="setting-info" style="flex:1">
+                <label class="model-radio-label">
+                  <input type="radio" name="cloud-model" value="whisper-1" onchange="setCloudModel(this.value)">
+                  <span class="model-radio-text">
+                    <strong>Whisper-1</strong>
+                    <span class="model-badge legacy">Legacy</span>
+                  </span>
+                </label>
+                <span class="setting-desc">Original Whisper model. Supports SRT/VTT, translation. <strong>$0.006/min</strong></span>
+              </div>
+            </div>
+          </div>
+
+          <h3 class="settings-section-label">Cost Estimator</h3>
+          <div class="settings-group">
+            <div class="setting-row">
+              <div class="setting-info" style="flex:1">
+                <label>Daily usage (minutes)</label>
+                <div class="cost-slider-row">
+                  <input type="range" id="cost-daily-minutes" min="5" max="180" value="30" step="5"
+                         oninput="updateCostEstimate()" class="cost-slider">
+                  <span id="cost-daily-value" class="cost-value">30 min</span>
+                </div>
+              </div>
+            </div>
+            <div class="setting-row last">
+              <div class="setting-info" style="flex:1">
+                <div class="cost-grid">
+                  <div class="cost-card">
+                    <span class="cost-label">Per Day</span>
+                    <span class="cost-amount" id="cost-per-day">$0.18</span>
+                  </div>
+                  <div class="cost-card">
+                    <span class="cost-label">Per Month</span>
+                    <span class="cost-amount" id="cost-per-month">$5.40</span>
+                  </div>
+                  <div class="cost-card">
+                    <span class="cost-label">Per Year</span>
+                    <span class="cost-amount" id="cost-per-year">$65.70</span>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 

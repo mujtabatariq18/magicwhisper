@@ -31,5 +31,10 @@ contextBridge.exposeInMainWorld('overlayAPI', {
   // Request right-click context menu
   showContextMenu: () => {
     ipcRenderer.send('overlay-context-menu');
+  },
+
+  // Appearance updates from settings
+  onAppearanceUpdate: (callback) => {
+    ipcRenderer.on('update-appearance', (event, settings) => callback(settings));
   }
 });

@@ -498,6 +498,22 @@ function setupIPC() {
   ipcMain.on('minimize-window', () => {
     if (mainWindow) mainWindow.minimize();
   });
+
+  // ─ Overlay Appearance ─
+  ipcMain.on('update-overlay-appearance', (event, settings) => {
+    logger.debug('main', 'Overlay appearance update', settings);
+
+    // Forward to overlay window
+    const ow = getOverlay();
+    if (ow && !ow.isDestroyed()) {
+      ow.webContents.send('update-appearance', settings);
+    }
+
+    // Rebuild tray if tray color changed
+    if (settings.trayIconColor && tray) {
+      rebuildTrayMenu(tray, store, mainWindow);
+    }
+  });
 }
 
 // ── App Lifecycle ───────────────────────────────────────
