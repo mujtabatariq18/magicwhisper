@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MagicWhisper</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- ═══ Title Bar (macOS traffic lights area) ═══ -->
+  <div class="titlebar" id="titlebar">
+    <div class="titlebar-drag"></div>
+  </div>
+
+  <!-- ═══ Setup Overlay ═══ -->
+  <div id="setup-overlay" class="setup-overlay hidden">
+    <div class="setup-content">
+      <div class="setup-icon">
+        <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
+          <circle cx="32" cy="32" r="30" stroke="currentColor" stroke-width="2" stroke-dasharray="4 4" opacity="0.3"/>
+          <rect x="24" y="16" width="16" height="24" rx="8" stroke="currentColor" stroke-width="2.5" fill="none"/>
+          <path d="M18 32C18 39.7 24.3 46 32 46C39.7 46 46 39.7 46 32" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+          <line x1="32" y1="46" x2="32" y2="54" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+          <line x1="24" y1="54" x2="40" y2="54" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <h1 class="setup-title">Welcome to MagicWhisper</h1>
+      <p class="setup-desc">Premium voice dictation that works everywhere. Let's get you set up.</p>
+
+      <div class="setup-steps" id="setup-steps">
+        <div class="setup-step" id="step-binary">
+          <div class="step-header">
+            <div class="step-num">1</div>
+            <div class="step-info">
+              <h3>Install Whisper Engine</h3>
+              <p>Downloads the local AI speech engine for your system</p>
+            </div>
+            <div class="step-status" id="step-binary-status"></div>
+          </div>
+          <div class="step-progress hidden" id="step-binary-progress">
+            <div class="progress-bar"><div class="progress-fill" id="binary-progress-fill"></div></div>
+            <span class="progress-text" id="binary-progress-text"></span>
+          </div>
+        </div>
+        <div class="setup-step" id="step-model">
+          <div class="step-header">
+            <div class="step-num">2</div>
+            <div class="step-info">
+              <h3>Download AI Model</h3>
+              <p>Base English model (142 MB) — best balance of speed and accuracy</p>
+            </div>
+            <div class="step-status" id="step-model-status"></div>
+          </div>
+          <div class="step-progress hidden" id="step-model-progress">
+            <div class="progress-bar"><div class="progress-fill" id="model-progress-fill"></div></div>
+            <span class="progress-text" id="model-progress-text"></span>
+          </div>
+        </div>
+      </div>
+
+      <button class="btn-primary btn-lg" id="setup-btn" onclick="startSetup()">Set Up MagicWhisper</button>
+      <p class="setup-note" id="setup-status-text"></p>
+    </div>
+  </div>
+
+  <!-- ═══ App Layout ═══ -->
+  <div class="app-layout">
+    <!-- ─── Sidebar ─── -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-brand">
+        <svg class="brand-icon" width="28" height="28" viewBox="0 0 28 28" fill="none">
+          <rect x="10" y="4" width="8" height="12" rx="4" fill="currentColor"/>
+          <path d="M7 14C7 17.9 10.1 21 14 21C17.9 21 21 17.9 21 14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          <line x1="14" y1="21" x2="14" y2="25" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          <line x1="10" y1="25" x2="18" y2="25" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+        <span class="brand-name">MagicWhisper</span>
+      </div>
+
+      <nav class="sidebar-nav">
+        <button class="nav-item active" data-page="home" onclick="navigateTo('home')" id="nav-home">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M3 7.5L10 2L17 7.5V16C17 16.6 16.6 17 16 17H4C3.4 17 3 16.6 3 16V7.5Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M7.5 17V10H12.5V17" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span>Home</span>
+        </button>
+        <button class="nav-item" data-page="dictionary" onclick="navigateTo('dictionary')" id="nav-dictionary">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M4 3H14C14.6 3 15 3.4 15 4V16C15 16.6 14.6 17 14 17H4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M4 3V17" stroke="currentColor" stroke-width="1.5"/><path d="M7 8H12M7 11H10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          <span>Dictionary</span>
+        </button>
+        <button class="nav-item" data-page="snippets" onclick="navigateTo('snippets')" id="nav-snippets">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M7 3L3 10L7 17" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M13 3L17 10L13 17" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><line x1="11" y1="3" x2="9" y2="17" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          <span>Snippets</span>
+        </button>
+        <button class="nav-item" data-page="style" onclick="navigateTo('style')" id="nav-style">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M3 4C3 3.4 3.4 3 4 3H16C16.6 3 17 3.4 17 4V6H3V4Z" stroke="currentColor" stroke-width="1.5"/><path d="M5 10H15M5 14H11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><rect x="3" y="3" width="14" height="14" rx="2" stroke="currentColor" stroke-width="1.5"/></svg>
+          <span>Style</span>
+        </button>
+        <button class="nav-item" data-page="scratchpad" onclick="navigateTo('scratchpad')" id="nav-scratchpad">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><rect x="3" y="3" width="14" height="14" rx="2" stroke="currentColor" stroke-width="1.5"/><line x1="6" y1="7" x2="14" y2="7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><line x1="6" y1="10" x2="14" y2="10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><line x1="6" y1="13" x2="10" y2="13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          <span>Scratchpad</span>
+        </button>
+      </nav>
+
+      <!-- Sidebar bottom -->
+      <div class="sidebar-bottom">
+        <div class="sidebar-version">
+          <span>MagicWhisper v1.0.0</span>
+        </div>
+        <button class="nav-item" data-page="settings-general" onclick="navigateTo('settings-general')" id="nav-settings">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="3" stroke="currentColor" stroke-width="1.5"/><path d="M10 2V4M10 16V18M2 10H4M16 10H18M4.9 4.9L6.3 6.3M13.7 13.7L15.1 15.1M4.9 15.1L6.3 13.7M13.7 6.3L15.1 4.9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          <span>Settings</span>
+        </button>
+      </div>
+    </aside>
+
+    <!-- ─── Main Content ─── -->
+    <main class="main-content" id="main-content">
+
+      <!-- ═══ HOME PAGE ═══ -->
+      <div class="page active" id="page-home">
+        <div class="page-header">
+          <h1 class="page-greeting" id="greeting">Good evening</h1>
+          <p class="page-subtitle">Get back into the flow</p>
+        </div>
+
+        <!-- Stats cards -->
+        <div class="stats-row" id="home-stats">
+          <div class="stat-card">
+            <span class="stat-value" id="stat-total-words">0</span>
+            <span class="stat-label">total words</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-value" id="stat-wpm">0</span>
+            <span class="stat-label">wpm</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-value" id="stat-streak">0</span>
+            <span class="stat-label">day streak</span>
+          </div>
+        </div>
+
+        <!-- Daily challenge progress -->
+        <div class="challenge-card" id="challenge-card">
+          <div class="challenge-header">
+            <span class="challenge-title">Daily Challenge</span>
+            <span class="challenge-goal" id="challenge-goal-text">0 / 100 words</span>
+          </div>
+          <div class="progress-bar challenge-bar">
+            <div class="progress-fill challenge-fill" id="challenge-progress-fill" style="width:0%"></div>
+          </div>
+          <div class="challenge-footer">
+            <span class="challenge-sessions" id="challenge-sessions">0 sessions today</span>
+            <button class="challenge-change-btn" onclick="showDailyGoalDialog()">Change goal</button>
+          </div>
+        </div>
+
+        <!-- Status indicator -->
+        <div class="status-card" id="status-card">
+          <div class="status-dot idle" id="status-dot"></div>
+          <div class="status-info">
+            <span class="status-label" id="status-label">Ready</span>
+            <span class="status-detail" id="status-detail">Press Option+Space to dictate</span>
+          </div>
+        </div>
+
+        <!-- Weekly activity -->
+        <div class="weekly-chart" id="weekly-chart"></div>
+
+        <!-- History timeline -->
+        <div class="history-section">
+          <h2 class="section-label">Recent Transcriptions</h2>
+          <div id="home-history" class="history-timeline">
+            <div class="empty-state">
+              <p>No transcriptions yet. Press your hotkey and speak!</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ DICTIONARY PAGE ═══ -->
+      <div class="page" id="page-dictionary">
+        <div class="page-header">
+          <h1>Dictionary</h1>
+          <p class="page-subtitle">Your personal vocabulary — Flow learns your words</p>
+        </div>
+
+        <div class="toolbar">
+          <div class="search-input">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="5" stroke="currentColor" stroke-width="1.5"/><line x1="11" y1="11" x2="14" y2="14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+            <input type="text" id="dict-search" placeholder="Search dictionary..." oninput="searchDictionary(this.value)">
+          </div>
+          <button class="btn-secondary" onclick="showAddWordDialog()">+ Add Word</button>
+        </div>
+
+        <div id="dictionary-list" class="card-list">
+          <div class="empty-state"><p>No custom words yet. Add words or they'll be auto-learned as you use MagicWhisper.</p></div>
+        </div>
+      </div>
+
+      <!-- ═══ SNIPPETS PAGE ═══ -->
+      <div class="page" id="page-snippets">
+        <div class="page-header">
+          <h1>Snippets</h1>
+          <p class="page-subtitle">Voice shortcuts for things you say often</p>
+        </div>
+
+        <div class="toolbar">
+          <div class="search-input">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="5" stroke="currentColor" stroke-width="1.5"/><line x1="11" y1="11" x2="14" y2="14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+            <input type="text" id="snippet-search" placeholder="Search snippets..." oninput="searchSnippets(this.value)">
+          </div>
+          <button class="btn-secondary" onclick="showAddSnippetDialog()">+ Add Snippet</button>
+        </div>
+
+        <div id="snippets-list" class="card-list">
+          <div class="empty-state"><p>No snippets yet. Create a snippet to insert commonly used text with your voice.</p></div>
+        </div>
+      </div>
+
+      <!-- ═══ STYLE PAGE ═══ -->
+      <div class="page" id="page-style">
+        <div class="page-header">
+          <h1>Style</h1>
+          <p class="page-subtitle">Set a different writing tone for each app</p>
+        </div>
+
+        <h3 class="settings-section-label">Default Style</h3>
+        <p class="settings-section-desc">This style is used everywhere unless you set a per-app override below.</p>
+        <div id="style-presets" class="style-grid"></div>
+
+        <h3 class="settings-section-label" style="margin-top:28px">Per-App Styles</h3>
+        <p class="settings-section-desc">Override the default style for specific applications.</p>
+        <div class="toolbar">
+          <button class="btn-secondary" onclick="showAddAppStyleDialog()">+ Add App Override</button>
+        </div>
+        <div id="app-styles-list" class="card-list">
+          <div class="empty-state"><p>No per-app styles set. All apps use your default style.</p></div>
+        </div>
+      </div>
+
+      <!-- ═══ SCRATCHPAD PAGE ═══ -->
+      <div class="page" id="page-scratchpad">
+        <div class="page-header">
+          <h1>Scratchpad</h1>
+          <p class="page-subtitle">Quick notes and scratch space</p>
+        </div>
+        <textarea class="scratchpad-area" id="scratchpad-textarea" placeholder="Start typing or dictate your thoughts here..."></textarea>
+      </div>
+
+      <!-- ═══ SETTINGS: GENERAL ═══ -->
+      <div class="page" id="page-settings-general">
+        <div class="settings-tabs">
+          <button class="settings-tab active" onclick="navigateTo('settings-general')">General</button>
+          <button class="settings-tab" onclick="navigateTo('settings-system')">System</button>
+          <button class="settings-tab" onclick="navigateTo('settings-models')">Models</button>
+          <button class="settings-tab" onclick="navigateTo('settings-advanced')">Advanced</button>
+        </div>
+
+        <div class="settings-page-content">
+          <h1 class="settings-title">General</h1>
+
+          <div class="settings-group">
+            <div class="setting-row">
+              <div class="setting-info">
+                <label>Shortcuts</label>
+                <span class="setting-desc" id="shortcut-desc">Press shortcut and speak. <a href="#" onclick="navigateTo('settings-shortcuts');return false;">Learn more →</a></span>
+              </div>
+              <button class="btn-beige" onclick="startRecordingShortcut()" id="change-shortcut-btn">Change</button>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <label>Microphone</label>
+                <span class="setting-desc" id="mic-name">Built-in mic (recommended)</span>
+              </div>
+              <button class="btn-beige" onclick="showMicSelector()">Change</button>
+            </div>
+            <div class="setting-row last">
+              <div class="setting-info">
+                <label>Languages</label>
+                <span class="setting-desc" id="lang-name">English</span>
+              </div>
+              <button class="btn-beige" onclick="showLanguageSelector()">Change</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ SETTINGS: SYSTEM ═══ -->
+      <div class="page" id="page-settings-system">
+        <div class="settings-tabs">
+          <button class="settings-tab" onclick="navigateTo('settings-general')">General</button>
+          <button class="settings-tab active" onclick="navigateTo('settings-system')">System</button>
+          <button class="settings-tab" onclick="navigateTo('settings-models')">Models</button>
+          <button class="settings-tab" onclick="navigateTo('settings-advanced')">Advanced</button>
+        </div>
+
+        <div class="settings-page-content">
+          <h1 class="settings-title">System</h1>
+
+          <h3 class="settings-section-label">App settings</h3>
+          <div class="settings-group">
+            <div class="setting-row">
+              <div class="setting-info"><label>Launch app at login</label></div>
+              <label class="toggle"><input type="checkbox" id="toggle-launch" onchange="saveSetting('launchAtLogin', this.checked)"><span class="toggle-slider"></span></label>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info"><label>Show Flow bar at all times</label></div>
+              <label class="toggle"><input type="checkbox" id="toggle-flowbar" checked onchange="saveSetting('overlayEnabled', this.checked)"><span class="toggle-slider"></span></label>
+            </div>
+            <div class="setting-row last">
+              <div class="setting-info"><label>Show app in dock</label></div>
+              <label class="toggle"><input type="checkbox" id="toggle-dock" onchange="saveSetting('showInDock', this.checked)"><span class="toggle-slider"></span></label>
+            </div>
+          </div>
+
+          <h3 class="settings-section-label">Sound</h3>
+          <div class="settings-group">
+            <div class="setting-row">
+              <div class="setting-info"><label>Dictation and notification sounds</label></div>
+              <label class="toggle"><input type="checkbox" id="toggle-sounds" checked onchange="saveSetting('soundFeedback', this.checked)"><span class="toggle-slider"></span></label>
+            </div>
+            <div class="setting-row last">
+              <div class="setting-info"><label>Mute music while dictating</label></div>
+              <label class="toggle"><input type="checkbox" id="toggle-mute" onchange="saveSetting('muteMusicWhileDictating', this.checked)"><span class="toggle-slider"></span></label>
+            </div>
+          </div>
+
+          <h3 class="settings-section-label">Notifications</h3>
+          <div class="settings-group">
+            <div class="setting-row">
+              <div class="setting-info">
+                <label>Suggestions</label>
+                <span class="setting-desc">Tips about getting set up or improving how you use MagicWhisper.</span>
+              </div>
+              <label class="toggle"><input type="checkbox" id="toggle-notif-suggest" checked onchange="saveSetting('notifSuggestions', this.checked)"><span class="toggle-slider"></span></label>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <label>Announcements</label>
+                <span class="setting-desc">New features or capabilities</span>
+              </div>
+              <label class="toggle"><input type="checkbox" id="toggle-notif-announce" checked onchange="saveSetting('notifAnnouncements', this.checked)"><span class="toggle-slider"></span></label>
+            </div>
+            <div class="setting-row last">
+              <div class="setting-info">
+                <label>Milestones</label>
+                <span class="setting-desc">Word-count milestones, streaks, and referral activity</span>
+              </div>
+              <label class="toggle"><input type="checkbox" id="toggle-notif-miles" checked onchange="saveSetting('notifMilestones', this.checked)"><span class="toggle-slider"></span></label>
+            </div>
+          </div>
+
+          <h3 class="settings-section-label">Extras</h3>
+          <div class="settings-group">
+            <div class="setting-row">
+              <div class="setting-info">
+                <label>Auto-add to dictionary</label>
+                <span class="setting-desc">Adds corrected words automatically</span>
+              </div>
+              <label class="toggle"><input type="checkbox" id="toggle-autodict" checked onchange="saveSetting('autoAddToDictionary', this.checked)"><span class="toggle-slider"></span></label>
+            </div>
+            <div class="setting-row last">
+              <div class="setting-info">
+                <label>Error Logging</label>
+                <span class="setting-desc">Capture diagnostic logs (recommended to keep ON)</span>
+              </div>
+              <label class="toggle"><input type="checkbox" id="toggle-logging" checked onchange="toggleLogging(this.checked)"><span class="toggle-slider"></span></label>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ SETTINGS: MODELS ═══ -->
+      <div class="page" id="page-settings-models">
+        <div class="settings-tabs">
+          <button class="settings-tab" onclick="navigateTo('settings-general')">General</button>
+          <button class="settings-tab" onclick="navigateTo('settings-system')">System</button>
+          <button class="settings-tab active" onclick="navigateTo('settings-models')">Models</button>
+          <button class="settings-tab" onclick="navigateTo('settings-advanced')">Advanced</button>
+        </div>
+
+        <div class="settings-page-content">
+          <h1 class="settings-title">AI Models</h1>
+
+          <div class="active-model-banner" id="active-model-banner">
+            <div class="model-icon-lg">
+              <svg width="36" height="36" viewBox="0 0 36 36" fill="none"><rect x="4" y="6" width="28" height="24" rx="4" stroke="currentColor" stroke-width="2"/><circle cx="14" cy="18" r="4" stroke="currentColor" stroke-width="1.5"/><circle cx="26" cy="13" r="2.5" stroke="currentColor" stroke-width="1.5"/><circle cx="26" cy="23" r="2.5" stroke="currentColor" stroke-width="1.5"/><line x1="18" y1="17" x2="23.5" y2="13" stroke="currentColor" stroke-width="1"/><line x1="18" y1="19" x2="23.5" y2="23" stroke="currentColor" stroke-width="1"/></svg>
+            </div>
+            <div>
+              <div class="model-active-name" id="active-model-name">Base (English)</div>
+              <div class="model-active-desc" id="active-model-desc">Good balance of speed and accuracy</div>
+            </div>
+          </div>
+
+          <h3 class="settings-section-label">Available Models</h3>
+          <p class="settings-section-desc">All models run 100% locally on your device. Larger models are more accurate but slower.</p>
+          <div id="models-list" class="models-grid"></div>
+        </div>
+      </div>
+
+      <!-- ═══ SETTINGS: ADVANCED ═══ -->
+      <div class="page" id="page-settings-advanced">
+        <div class="settings-tabs">
+          <button class="settings-tab" onclick="navigateTo('settings-general')">General</button>
+          <button class="settings-tab" onclick="navigateTo('settings-system')">System</button>
+          <button class="settings-tab" onclick="navigateTo('settings-models')">Models</button>
+          <button class="settings-tab active" onclick="navigateTo('settings-advanced')">Advanced</button>
+        </div>
+
+        <div class="settings-page-content">
+          <h1 class="settings-title">Advanced</h1>
+
+          <h3 class="settings-section-label">Cloud Transcription (OpenAI API)</h3>
+          <p class="settings-section-desc">
+            Use OpenAI's Whisper API for faster, higher-quality transcription when connected.
+            Falls back to local model automatically when offline.
+          </p>
+          <div class="settings-group">
+            <div class="setting-row">
+              <div class="setting-info">
+                <label>API Key</label>
+                <span class="setting-desc" id="cloud-key-status">Not configured</span>
+              </div>
+              <button class="btn-beige" onclick="showCloudApiDialog()">Configure</button>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <label>Enable cloud transcription</label>
+                <span class="setting-desc">Use OpenAI API when available</span>
+              </div>
+              <label class="toggle"><input type="checkbox" id="toggle-cloud-enabled" onchange="toggleCloudSetting('enabled', this.checked)"><span class="toggle-slider"></span></label>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <label>Give cloud priority</label>
+                <span class="setting-desc">Always try cloud first, fall back to local on failure</span>
+              </div>
+              <label class="toggle"><input type="checkbox" id="toggle-cloud-priority" onchange="toggleCloudSetting('priority', this.checked)"><span class="toggle-slider"></span></label>
+            </div>
+            <div class="setting-row last">
+              <div class="setting-info">
+                <label>Connection Status</label>
+                <span class="setting-desc" id="cloud-connection-status">Unknown</span>
+              </div>
+              <button class="btn-beige" onclick="checkCloudConnection()">Test</button>
+            </div>
+          </div>
+
+          <h3 class="settings-section-label">Diagnostics</h3>
+          <div class="settings-group">
+            <div class="setting-row">
+              <div class="setting-info">
+                <label>Permission Status</label>
+                <span class="setting-desc" id="perm-status">Checking...</span>
+              </div>
+              <button class="btn-beige" onclick="checkPermissions()">Check</button>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <label>View Logs</label>
+                <span class="setting-desc" id="log-file-count">0 log files</span>
+              </div>
+              <button class="btn-beige" onclick="exportLogs()">Export</button>
+            </div>
+            <div class="setting-row last">
+              <div class="setting-info">
+                <label>Clear All Data</label>
+                <span class="setting-desc">Clear history, dictionary, and snippets</span>
+              </div>
+              <button class="btn-beige btn-danger-text" onclick="clearAllData()">Clear</button>
+            </div>
+          </div>
+
+          <h3 class="settings-section-label">About</h3>
+          <div class="about-card">
+            <div class="about-icon">
+              <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+                <rect width="48" height="48" rx="12" fill="url(#about-grad)"/>
+                <rect x="18" y="10" width="12" height="18" rx="6" fill="white" fill-opacity="0.9"/>
+                <path d="M13 24C13 30 17.5 35 24 35C30.5 35 35 30 35 24" stroke="white" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-opacity="0.9"/>
+                <line x1="24" y1="35" x2="24" y2="40" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-opacity="0.9"/>
+                <defs><linearGradient id="about-grad" x1="0" y1="0" x2="48" y2="48"><stop stop-color="#7C5CFC"/><stop offset="1" stop-color="#A78BFA"/></linearGradient></defs>
+              </svg>
+            </div>
+            <div>
+              <h3>MagicWhisper</h3>
+              <p>Version 1.0.0</p>
+              <p class="about-desc-text">100% local AI voice-to-text dictation.<br>Powered by OpenAI Whisper, running entirely on your device.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+
+  <!-- ═══ Modal Overlay ═══ -->
+  <div class="modal-overlay hidden" id="modal-overlay" onclick="closeModal()">
+    <div class="modal-content" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <h2 id="modal-title">Dialog</h2>
+        <button class="modal-close" onclick="closeModal()">×</button>
+      </div>
+      <div class="modal-body" id="modal-body"></div>
+    </div>
+  </div>
+
+  <!-- ═══ Achievement Banner ═══ -->
+  <div class="achievement-banner hidden" id="achievement-banner">
+    <div class="achievement-icon" id="achievement-icon">🎉</div>
+    <div class="achievement-info">
+      <span class="achievement-title" id="achievement-title"></span>
+      <span class="achievement-msg" id="achievement-msg"></span>
+    </div>
+  </div>
+
+  <!-- ═══ Toast ═══ -->
+  <div class="toast" id="toast"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

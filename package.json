@@ -1,0 +1,83 @@
+{
+  "name": "magicwhisper",
+  "version": "1.0.0",
+  "description": "Premium voice-to-text dictation — speak naturally, get polished text in any app",
+  "main": "src/main/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "NODE_ENV=development electron .",
+    "build": "electron-builder",
+    "build:mac": "electron-builder --mac",
+    "build:win": "electron-builder --win",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "author": "MagicWhisper",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0"
+  },
+  "dependencies": {
+    "electron-store": "^8.2.0"
+  },
+  "build": {
+    "appId": "com.magicwhisper.app",
+    "productName": "MagicWhisper",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "node_modules/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "bin/",
+        "to": "bin",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "models/",
+        "to": "models",
+        "filter": ["**/*"]
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "icon": "assets/icon.icns",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["arm64"]
+        }
+      ],
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "MagicWhisper needs microphone access for voice dictation.",
+        "NSAccessibilityUsageDescription": "MagicWhisper needs accessibility access to paste transcribed text into other applications.",
+        "NSAppleEventsUsageDescription": "MagicWhisper needs Apple Events access to paste text into other apps."
+      },
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "identity": null,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist"
+    },
+    "win": {
+      "icon": "assets/icon.ico",
+      "target": ["nsis"]
+    },
+    "dmg": {
+      "title": "MagicWhisper",
+      "iconSize": 80,
+      "contents": [
+        { "x": 130, "y": 220 },
+        { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
+      ]
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false
+    }
+  }
+}

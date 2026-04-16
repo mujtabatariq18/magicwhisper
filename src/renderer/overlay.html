@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>MagicWhisper Overlay</title>
+  <link rel="stylesheet" href="overlay.css">
+</head>
+<body>
+  <div class="pill" id="pill">
+    <!-- Idle state: small mic icon -->
+    <div class="pill-idle" id="pill-idle">
+      <svg class="pill-mic" viewBox="0 0 24 24" fill="none">
+        <rect x="9" y="4" width="6" height="10" rx="3" fill="white"/>
+        <path d="M6 12c0 3.3 2.7 6 6 6s6-2.7 6-6" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="12" y1="18" x2="12" y2="21" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
+      </svg>
+    </div>
+
+    <!-- Recording state: waveform bars -->
+    <div class="pill-recording hidden" id="pill-recording">
+      <div class="waveform" id="waveform">
+        <div class="wave-bar" style="--i:0"></div>
+        <div class="wave-bar" style="--i:1"></div>
+        <div class="wave-bar" style="--i:2"></div>
+        <div class="wave-bar" style="--i:3"></div>
+        <div class="wave-bar" style="--i:4"></div>
+        <div class="wave-bar" style="--i:5"></div>
+        <div class="wave-bar" style="--i:6"></div>
+        <div class="wave-bar" style="--i:7"></div>
+        <div class="wave-bar" style="--i:8"></div>
+        <div class="wave-bar" style="--i:9"></div>
+      </div>
+    </div>
+
+    <!-- Processing state: pulsing dots -->
+    <div class="pill-processing hidden" id="pill-processing">
+      <div class="proc-dots">
+        <span class="proc-dot" style="--d:0"></span>
+        <span class="proc-dot" style="--d:1"></span>
+        <span class="proc-dot" style="--d:2"></span>
+      </div>
+    </div>
+
+    <!-- Success state: checkmark -->
+    <div class="pill-success hidden" id="pill-success">
+      <svg class="pill-check" viewBox="0 0 24 24" fill="none">
+        <polyline points="5 12 10 17 19 8" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </div>
+  </div>
+
+  <script>
+    const pill = document.getElementById('pill');
+    const pillIdle = document.getElementById('pill-idle');
+    const pillRecording = document.getElementById('pill-recording');
+    const pillProcessing = document.getElementById('pill-processing');
+    const pillSuccess = document.getElementById('pill-success');
+    const waveBars = document.querySelectorAll('.wave-bar');
+
+    // ── State management ──
+    let currentState = 'idle';
+
+    window.overlayAPI.onState((data) => {
+      currentState = data.state;
+      pill.className = `pill ${data.state}`;
+
+      // Show/hide sections
+      pillIdle.classList.toggle('hidden', data.state !== 'idle');
+      pillRecording.classList.toggle('hidden', data.state !== 'recording');
+      pillProcessing.classList.toggle('hidden', data.state !== 'processing');
+      pillSuccess.classList.toggle('hidden', data.state !== 'success');
+    });
+
+    // ── Waveform audio level ──
+    window.overlayAPI.onAudioLevel((level) => {
+      if (currentState !== 'recording') return;
+      const clamped = Math.min(1, Math.max(0, level));
+
+      waveBars.forEach((bar, i) => {
+        // Create wave-like variation per bar
+        const phase = (i / waveBars.length) * Math.PI * 2;
+        const variation = 0.3 + 0.7 * Math.abs(Math.sin(phase + Date.now() / 200));
+        const height = 4 + (clamped * variation * 20);
+        bar.style.height = `${height}px`;
+      });
+    });
+
+    // ── Drag handling ──
+    let isDragging = false;
+    let lastX = 0;
+    let lastY = 0;
+
+    pill.addEventListener('mousedown', (e) => {
+      if (e.button === 2) return; // Don't drag on right-click
+      isDragging = true;
+      lastX = e.screenX;
+      lastY = e.screenY;
+      pill.style.cursor = 'grabbing';
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!isDragging) return;
+      const deltaX = e.screenX - lastX;
+      const deltaY = e.screenY - lastY;
+      lastX = e.screenX;
+      lastY = e.screenY;
+      window.overlayAPI.dragMove(deltaX, deltaY);
+    });
+
+    document.addEventListener('mouseup', () => {
+      if (isDragging) {
+        isDragging = false;
+        pill.style.cursor = 'grab';
+        window.overlayAPI.dragEnd();
+      }
+    });
+
+    // ── Right-click context menu ──
+    pill.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      window.overlayAPI.showContextMenu();
+    });
+  </script>
+</body>
+</html>
