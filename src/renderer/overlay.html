@@ -82,8 +82,10 @@
 
     // ── State management ──
     let currentState = 'idle';
+    let successTimer = null;
 
     window.overlayAPI.onState((data) => {
+      clearTimeout(successTimer);
       currentState = data.state;
       pill.className = `pill ${data.state}`;
 

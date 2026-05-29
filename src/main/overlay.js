@@ -13,6 +13,7 @@ const { logger } = require('./logger');
 
 let overlayWindow = null;
 let savedPosition = null;
+let successRevertTimer = null;
 
 function createOverlay(mainWindow, store) {
   const display = screen.getPrimaryDisplay();
@@ -48,6 +49,14 @@ function createOverlay(mainWindow, store) {
   overlayWindow.loadFile(path.join(__dirname, '..', 'renderer', 'overlay.html'));
   overlayWindow.setIgnoreMouseEvents(false);
   overlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+
+  overlayWindow.webContents.on('did-finish-load', () => {
+    overlayWindow.webContents.send('update-appearance', {
+      overlayIdleIcon: settings.overlayIdleIcon || 'wave',
+      waveformColor: settings.waveformColor || '#ffffff'
+    });
+    updateOverlayState('idle');
+  });
 
   // Handle drag move from renderer
   ipcMain.on('overlay-drag-move', (event, { deltaX, deltaY }) => {
@@ -135,6 +144,7 @@ function showOverlayContextMenu(mainWindow) {
 function updateOverlayState(state, data = {}) {
   if (!overlayWindow || overlayWindow.isDestroyed()) return;
 
+  clearTimeout(successRevertTimer);
   overlayWindow.webContents.send('overlay-state', { state, ...data });
 
   // Adjust size based on state — pill expands when active
@@ -159,7 +169,7 @@ function updateOverlayState(state, data = {}) {
 
   // Auto-revert success state
   if (state === 'success') {
-    setTimeout(() => {
+    successRevertTimer = setTimeout(() => {
       if (overlayWindow && !overlayWindow.isDestroyed()) {
         updateOverlayState('idle');
       }

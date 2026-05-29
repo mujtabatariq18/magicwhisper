@@ -80,6 +80,19 @@ const STYLE_PRESETS = {
       shortenSentences: true
     }
   },
+  developer: {
+    id: 'developer',
+    name: 'Developer',
+    description: 'Technical prompts, code terms, and concise updates',
+    icon: 'DEV',
+    rules: {
+      formality: 'neutral',
+      sentenceCase: false,
+      contractions: true,
+      removeFillers: true,
+      expandAbbreviations: false
+    }
+  },
   creative: {
     id: 'creative',
     name: 'Creative',

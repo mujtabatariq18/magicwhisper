@@ -6,12 +6,17 @@ let currentSettings = {};
 let audioStream = null;
 let recordStartTime = null;
 let persistentMicStream = null;
+let micSafetyTimer = null;
+let isMicCapturing = false;
 let currentPage = 'home';
+
+const MAX_RENDERER_RECORDING_MS = 5 * 60 * 1000;
 
 // ── Initialization ──────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', async () => {
   await loadSettings();
+  await loadAppVersion();
   await checkSetupStatus();
   updateGreeting();
   await loadHomeStats();
@@ -20,6 +25,18 @@ document.addEventListener('DOMContentLoaded', async () => {
   await loadHomeHistory();
   setupEventListeners();
   setupScratchpad();
+});
+
+async function loadAppVersion() {
+  if (!window.magicAPI.getAppVersion) return;
+  const version = await window.magicAPI.getAppVersion();
+  document.querySelectorAll('[data-app-version]').forEach(el => {
+    el.textContent = version;
+  });
+}
+
+window.addEventListener('beforeunload', () => {
+  releaseMicResources();
 });
 
 function updateGreeting() {
@@ -58,6 +75,10 @@ async function loadSettings() {
   setToggle('toggle-notif-miles', currentSettings.notifMilestones !== false);
   setToggle('toggle-autodict', currentSettings.autoAddToDictionary !== false);
   setToggle('toggle-logging', currentSettings.loggingEnabled !== false);
+  setToggle('toggle-minimize-tray', currentSettings.minimizeToTray !== false);
+  setToggle('toggle-dev-mode', currentSettings.developerMode === true);
+  setToggle('toggle-dev-syntax', currentSettings.developerSyntaxFormatting !== false);
+  setToggle('toggle-dev-files', currentSettings.developerFileTagging !== false);
 }
 
 function setToggle(id, value) {
@@ -80,6 +101,14 @@ function setupEventListeners() {
     const label = document.getElementById('status-label');
     const detail = document.getElementById('status-detail');
 
+    if (isRecording === null) {
+      dot.className = 'status-dot idle';
+      label.textContent = 'Ready';
+      const shortcut = currentSettings.hotkey || (window.magicAPI.isMac ? 'Option+Space' : 'Ctrl+Shift+Space');
+      detail.textContent = `Press ${shortcut} to dictate`;
+      return;
+    }
+
     if (isRecording) {
       dot.className = 'status-dot recording';
       label.textContent = 'Recording';
@@ -100,6 +129,12 @@ function setupEventListeners() {
     await stopMicCapture(duration);
   });
 
+  if (window.magicAPI.onReleaseMicrophone) {
+    window.magicAPI.onReleaseMicrophone(() => {
+      releaseMicResources();
+    });
+  }
+
   window.magicAPI.onTranscriptionResult((text) => {
     const dot = document.getElementById('status-dot');
     const label = document.getElementById('status-label');
@@ -107,7 +142,7 @@ function setupEventListeners() {
 
     dot.className = 'status-dot idle';
     label.textContent = 'Ready';
-    const shortcut = currentSettings.hotkey || 'Option+Space';
+    const shortcut = currentSettings.hotkey || (window.magicAPI.isMac ? 'Option+Space' : 'Ctrl+Shift+Space');
     detail.textContent = `Press ${shortcut} to dictate`;
 
     if (text) {
@@ -130,7 +165,7 @@ function setupEventListeners() {
 
     setTimeout(() => {
       label.textContent = 'Ready';
-      const shortcut = currentSettings.hotkey || 'Option+Space';
+      const shortcut = currentSettings.hotkey || (window.magicAPI.isMac ? 'Option+Space' : 'Ctrl+Shift+Space');
       detail.textContent = `Press ${shortcut} to dictate`;
     }, 4000);
   });
@@ -174,6 +209,12 @@ function setupEventListeners() {
       detail.textContent = 'Transcribing locally...';
     }
   });
+
+  if (window.magicAPI.onUpdateStatus) {
+    window.magicAPI.onUpdateStatus((status) => {
+      updateUpdateStatus(status);
+    });
+  }
 }
 
 // ── Navigation ──────────────────────────────────────────
@@ -633,11 +674,29 @@ async function loadAdvancedInfo() {
 
     // Load cloud transcription status
     await loadCloudStatus();
+    if (window.magicAPI.getUpdateStatus) {
+      updateUpdateStatus(await window.magicAPI.getUpdateStatus());
+    }
 
     // Init model selector and overlay appearance
     initModelSelector();
     initOverlayAppearance();
   } catch (e) {}
+}
+
+async function checkForAppUpdates() {
+  try {
+    updateUpdateStatus({ message: 'Checking for updates...' });
+    await window.magicAPI.checkForUpdates();
+  } catch (e) {
+    updateUpdateStatus({ message: `Update check failed: ${e.message}` });
+  }
+}
+
+function updateUpdateStatus(status) {
+  const el = document.getElementById('update-status');
+  if (!el || !status) return;
+  el.textContent = status.message || 'Update status unavailable';
 }
 
 async function loadCloudStatus() {
@@ -942,59 +1001,87 @@ async function getMicStream() {
       return persistentMicStream;
     }
   }
+  const selectedMic = currentSettings.microphone && currentSettings.microphone !== 'default'
+    ? { exact: currentSettings.microphone }
+    : undefined;
+
   persistentMicStream = await navigator.mediaDevices.getUserMedia({
-    audio: { channelCount: 1, sampleRate: 16000, echoCancellation: true, noiseSuppression: true }
+    audio: {
+      ...(selectedMic ? { deviceId: selectedMic } : {}),
+      channelCount: 1,
+      sampleRate: 16000,
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true
+    }
   });
   return persistentMicStream;
 }
 
 async function startMicCapture() {
   try {
+    if (isMicCapturing) {
+      await releaseMicResources();
+    }
+
+    isMicCapturing = true;
     const stream = await getMicStream();
     audioStream = stream.clone();
 
     const audioContext = new AudioContext({ sampleRate: 16000 });
     const source = audioContext.createMediaStreamSource(audioStream);
     const processor = audioContext.createScriptProcessor(4096, 1, 1);
+    const silentSink = audioContext.createGain();
     const pcmChunks = [];
 
     processor.onaudioprocess = (e) => {
-      pcmChunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+      const input = e.inputBuffer.getChannelData(0);
+      pcmChunks.push(new Float32Array(input));
+
+      let sum = 0;
+      for (let i = 0; i < input.length; i++) sum += input[i] * input[i];
+      const rms = Math.sqrt(sum / input.length);
+      if (window.magicAPI.sendAudioLevel) {
+        window.magicAPI.sendAudioLevel(Math.min(1, rms * 12));
+      }
     };
 
+    silentSink.gain.value = 0;
     source.connect(processor);
-    processor.connect(audioContext.destination);
+    processor.connect(silentSink);
+    silentSink.connect(audioContext.destination);
 
     window._audioContext = audioContext;
     window._audioProcessor = processor;
     window._audioSource = source;
+    window._audioSink = silentSink;
     window._pcmChunks = pcmChunks;
+
+    clearTimeout(micSafetyTimer);
+    micSafetyTimer = setTimeout(() => {
+      stopMicCapture(Date.now() - (recordStartTime || Date.now()));
+    }, MAX_RENDERER_RECORDING_MS);
   } catch (err) {
     console.error('Mic capture failed:', err);
+    await releaseMicResources();
+    if (window.magicAPI.recordingCancelled) {
+      window.magicAPI.recordingCancelled(`microphone-start-failed: ${err.message}`);
+    }
   }
 }
 
 async function stopMicCapture(duration) {
   try {
-    if (window._audioProcessor) window._audioProcessor.disconnect();
-    if (window._audioSource) window._audioSource.disconnect();
-    if (window._audioContext) await window._audioContext.close();
-
-    if (audioStream) {
-      audioStream.getTracks().forEach(track => track.stop());
-      audioStream = null;
-    }
+    const pcmChunks = window._pcmChunks || [];
+    await releaseMicResources();
 
     // 🔴 CRITICAL: Release the persistent mic stream so macOS
-    // stops showing the mic indicator in the toolbar.
-    // It will be re-acquired on the next recording start.
-    if (persistentMicStream) {
-      persistentMicStream.getTracks().forEach(track => track.stop());
-      persistentMicStream = null;
+    if (pcmChunks.length === 0) {
+      if (window.magicAPI.recordingCancelled) {
+        window.magicAPI.recordingCancelled('empty-audio-buffer');
+      }
+      return;
     }
-
-    const pcmChunks = window._pcmChunks || [];
-    if (pcmChunks.length === 0) return;
 
     const totalLength = pcmChunks.reduce((acc, c) => acc + c.length, 0);
     const pcmData = new Float32Array(totalLength);
@@ -1008,7 +1095,42 @@ async function stopMicCapture(duration) {
     window._pcmChunks = [];
   } catch (err) {
     console.error('Stop mic failed:', err);
+    await releaseMicResources();
+    if (window.magicAPI.recordingCancelled) {
+      window.magicAPI.recordingCancelled(`microphone-stop-failed: ${err.message}`);
+    }
   }
+}
+
+async function releaseMicResources() {
+  clearTimeout(micSafetyTimer);
+  micSafetyTimer = null;
+  isMicCapturing = false;
+
+  try { if (window._audioProcessor) window._audioProcessor.disconnect(); } catch (e) {}
+  try { if (window._audioSource) window._audioSource.disconnect(); } catch (e) {}
+  try { if (window._audioSink) window._audioSink.disconnect(); } catch (e) {}
+  try {
+    if (window._audioContext && window._audioContext.state !== 'closed') {
+      await window._audioContext.close();
+    }
+  } catch (e) {}
+
+  if (audioStream) {
+    audioStream.getTracks().forEach(track => track.stop());
+    audioStream = null;
+  }
+
+  if (persistentMicStream) {
+    persistentMicStream.getTracks().forEach(track => track.stop());
+    persistentMicStream = null;
+  }
+
+  window._audioContext = null;
+  window._audioProcessor = null;
+  window._audioSource = null;
+  window._audioSink = null;
+  window._pcmChunks = [];
 }
 
 function encodeWAV(samples, sampleRate) {

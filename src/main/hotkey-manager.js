@@ -125,6 +125,11 @@ class HotkeyManager {
     }
   }
 
+  resetRecordingState() {
+    this.isRecording = false;
+    this.recordStartTime = null;
+  }
+
   destroy() {
     this.unregister();
     globalShortcut.unregisterAll();

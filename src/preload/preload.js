@@ -10,6 +10,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('magicAPI', {
   // ─── Settings ─────────────────────────────────────────
   getSettings: () => ipcRenderer.invoke('get-settings'),
+  getAppVersion: () => ipcRenderer.invoke('get-app-version'),
   saveSettings: (settings) => ipcRenderer.invoke('save-settings', settings),
 
   // ─── Models ───────────────────────────────────────────
@@ -23,6 +24,8 @@ contextBridge.exposeInMainWorld('magicAPI', {
 
   // ─── Audio ────────────────────────────────────────────
   sendAudioData: (audioBuffer, duration) => ipcRenderer.send('audio-data', audioBuffer, duration),
+  sendAudioLevel: (level) => ipcRenderer.send('audio-level', level),
+  recordingCancelled: (reason) => ipcRenderer.send('recording-cancelled', reason),
 
   // ─── History ──────────────────────────────────────────
   getHistory: (opts) => ipcRenderer.invoke('get-history', opts || {}),
@@ -89,6 +92,11 @@ contextBridge.exposeInMainWorld('magicAPI', {
   // ─── Permissions ──────────────────────────────────────
   getPermissionStatus: () => ipcRenderer.invoke('get-permission-status'),
 
+  // ─── Updates ──────────────────────────────────────────
+  checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
+  getUpdateStatus: () => ipcRenderer.invoke('get-update-status'),
+  installDownloadedUpdate: () => ipcRenderer.invoke('install-downloaded-update'),
+
   // ─── Window Controls ──────────────────────────────────
   showWindow: () => ipcRenderer.send('show-window'),
   hideWindow: () => ipcRenderer.send('hide-window'),
@@ -106,6 +114,9 @@ contextBridge.exposeInMainWorld('magicAPI', {
   },
   onStopRecording: (callback) => {
     ipcRenderer.on('stop-recording', (event, duration) => callback(duration));
+  },
+  onReleaseMicrophone: (callback) => {
+    ipcRenderer.on('release-microphone', () => callback());
   },
   onTranscriptionResult: (callback) => {
     ipcRenderer.on('transcription-result', (event, text) => callback(text));
@@ -133,6 +144,9 @@ contextBridge.exposeInMainWorld('magicAPI', {
   },
   onTranscriptionEngine: (callback) => {
     ipcRenderer.on('transcription-engine', (event, engine) => callback(engine));
+  },
+  onUpdateStatus: (callback) => {
+    ipcRenderer.on('update-status', (event, status) => callback(status));
   },
 
   // ─── Platform Info ────────────────────────────────────

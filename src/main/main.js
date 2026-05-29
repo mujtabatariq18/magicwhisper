@@ -27,6 +27,7 @@ const { StyleManager } = require('./styles');
 const { SoundManager } = require('./sound');
 const { ChallengesManager } = require('./challenges');
 const { CloudTranscriber } = require('./cloud-transcriber');
+const { UpdateManager } = require('./updater');
 
 // ── State ────────────────────────────────────────────────
 let mainWindow = null;
@@ -46,9 +47,13 @@ let styleManager = null;
 let soundManager = null;
 let challenges = null;
 let cloudTranscriber = null;
+let updateManager = null;
 let isRecording = false;
+let isProcessing = false;
+let recordingSafetyTimer = null;
 
 const isMac = process.platform === 'darwin';
+const MAX_RECORDING_DURATION_MS = 5 * 60 * 1000;
 
 // ── Enforce Single Instance ─────────────────────────────
 const gotTheLock = app.requestSingleInstanceLock();
@@ -96,7 +101,22 @@ function createWindow() {
   mainWindow.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
 
   mainWindow.on('close', (e) => {
+    const minimizeToTray = store ? store.get('settings', {}).minimizeToTray !== false : true;
     if (!app.isQuitting) {
+      if (minimizeToTray) {
+        e.preventDefault();
+        mainWindow.hide();
+      } else {
+        // Automatically quit application if minimize to tray behavior is turned off
+        app.isQuitting = true;
+        app.quit();
+      }
+    }
+  });
+
+  mainWindow.on('minimize', (e) => {
+    const minimizeToTray = store ? store.get('settings', {}).minimizeToTray !== false : true;
+    if (minimizeToTray) {
       e.preventDefault();
       mainWindow.hide();
     }
@@ -116,6 +136,11 @@ function createWindow() {
 // ── Recording Flow ──────────────────────────────────────
 function startRecording() {
   if (isRecording) return;
+  if (isProcessing) {
+    logger.debug('main', 'Ignoring record start while transcription is processing');
+    if (hotkeyManager) hotkeyManager.resetRecordingState();
+    return;
+  }
   isRecording = true;
 
   logger.info('main', 'Recording started');
@@ -132,11 +157,20 @@ function startRecording() {
     mainWindow.webContents.send('recording-state', true);
     mainWindow.webContents.send('start-recording');
   }
+
+  clearTimeout(recordingSafetyTimer);
+  recordingSafetyTimer = setTimeout(() => {
+    if (!isRecording) return;
+    logger.warn('main', 'Recording safety timeout reached; forcing stop');
+    if (hotkeyManager) hotkeyManager.forceStop();
+  }, MAX_RECORDING_DURATION_MS);
 }
 
 function stopRecording(duration) {
   if (!isRecording) return;
   isRecording = false;
+  clearTimeout(recordingSafetyTimer);
+  recordingSafetyTimer = null;
 
   logger.info('main', 'Recording stopped', { durationMs: duration });
   updateTrayState(tray, 'processing');
@@ -156,6 +190,7 @@ function stopRecording(duration) {
 
 async function handleAudioData(event, audioBuffer, recordDuration) {
   try {
+    isProcessing = true;
     updateTrayState(tray, 'processing');
     updateOverlayState('processing');
 
@@ -204,7 +239,11 @@ async function handleAudioData(event, audioBuffer, recordDuration) {
 
     if (text && text.trim()) {
       // Step 2: Process text (filler removal, corrections, etc.)
-      text = textProcessor.process(text);
+      text = textProcessor.process(text, {
+        developerMode: settings.developerMode === true,
+        developerSyntaxFormatting: settings.developerSyntaxFormatting !== false,
+        developerFileTagging: settings.developerFileTagging !== false
+      });
 
       // Step 3: Apply style/tone
       const activeStyle = styleManager.getDefaultStyle();
@@ -267,10 +306,12 @@ async function handleAudioData(event, audioBuffer, recordDuration) {
     }
 
     updateTrayState(tray, 'idle');
+    isProcessing = false;
   } catch (err) {
     logger.error('main', 'Transcription pipeline error', { error: err.message, stack: err.stack });
     updateTrayState(tray, 'idle');
     updateOverlayState('idle');
+    isProcessing = false;
 
     // Play error sound
     const settings = store.get('settings', {});
@@ -302,10 +343,31 @@ function setupIPC() {
     handleAudioData(event, audioBuffer, recordDuration);
   });
 
+  ipcMain.on('audio-level', (event, level) => {
+    if (isRecording) sendAudioLevel(level);
+  });
+
+  ipcMain.on('recording-cancelled', (event, reason) => {
+    logger.warn('main', 'Recording cancelled by renderer', { reason });
+    isRecording = false;
+    isProcessing = false;
+    clearTimeout(recordingSafetyTimer);
+    recordingSafetyTimer = null;
+    if (hotkeyManager) hotkeyManager.resetRecordingState();
+    updateTrayState(tray, 'idle');
+    updateOverlayState('idle');
+
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('recording-state', null);
+    }
+  });
+
   // ─ Settings ─
   ipcMain.handle('get-settings', () => {
     return store.get('settings', {});
   });
+
+  ipcMain.handle('get-app-version', () => app.getVersion());
 
   ipcMain.handle('save-settings', (event, settings) => {
     store.set('settings', settings);
@@ -511,7 +573,7 @@ function setupIPC() {
 
     // Rebuild tray if tray color changed
     if (settings.trayIconColor && tray) {
-      rebuildTrayMenu(tray, store, mainWindow);
+      rebuildTrayMenu(mainWindow, { store, micManager, clipboardHistory, cloudTranscriber, updater: updateManager });
     }
   });
 }
@@ -557,6 +619,7 @@ app.whenReady().then(async () => {
   soundManager = new SoundManager();
   challenges = new ChallengesManager();
   cloudTranscriber = new CloudTranscriber();
+  updateManager = new UpdateManager();
 
   // Apply cloud transcription settings
   cloudTranscriber.configure({
@@ -573,7 +636,7 @@ app.whenReady().then(async () => {
   createWindow();
 
   // Create tray with full dependencies for submenus
-  const trayDeps = { store, micManager, clipboardHistory, cloudTranscriber };
+  const trayDeps = { store, micManager, clipboardHistory, cloudTranscriber, updater: updateManager };
   tray = createTray(mainWindow, trayDeps);
 
   // Create overlay with mainWindow and store for position persistence
@@ -585,6 +648,8 @@ app.whenReady().then(async () => {
   // Setup permissions & IPC
   permissions.installElectronPermissionHandlers();
   setupIPC();
+  updateManager.init(mainWindow);
+  updateManager.scheduleStartupCheck();
   registerHotkeys();
   await permissions.requestMicrophone();
   permissions.checkAccessibility();
@@ -613,6 +678,10 @@ app.on('activate', () => {
 
 app.on('before-quit', () => {
   app.isQuitting = true;
+  clearTimeout(recordingSafetyTimer);
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('release-microphone');
+  }
   if (hotkeyManager) hotkeyManager.destroy();
   logger.info('main', '═══ MagicWhisper Shutting Down ═══');
 });

@@ -118,7 +118,7 @@ class Transcriber {
         ? /macos.*arm64|darwin.*arm64|macos.*aarch64/
         : /macos.*x86_64|darwin.*x64/;
     } else if (platform === 'win32') {
-      assetPattern = /win.*x64|windows.*x64/;
+      assetPattern = /win.*x64|windows.*x64|whisper-bin-x64/;
     } else {
       assetPattern = /linux.*x64|linux.*amd64/;
     }
@@ -159,12 +159,16 @@ class Transcriber {
 
     // Extract
     if (progressCallback) progressCallback({ stage: 'binary', message: 'Extracting...' });
-    const extractDir = path.join(os.tmpdir(), 'magicwhisper-extract');
+    const extractDir = path.join(os.tmpdir(), `magicwhisper-extract-${Date.now()}`);
     if (fs.existsSync(extractDir)) fs.rmSync(extractDir, { recursive: true, force: true });
     fs.mkdirSync(extractDir, { recursive: true });
 
     if (assetName.endsWith('.zip')) {
-      await this.execShell(`unzip -o "${tmpFile}" -d "${extractDir}"`);
+      if (process.platform === 'win32') {
+        await this.execShell(`powershell -NoProfile -Command "Expand-Archive -Force -Path '${tmpFile}' -DestinationPath '${extractDir}'"`);
+      } else {
+        await this.execShell(`unzip -o "${tmpFile}" -d "${extractDir}"`);
+      }
     } else {
       await this.execShell(`tar xzf "${tmpFile}" -C "${extractDir}"`);
     }
@@ -177,6 +181,16 @@ class Transcriber {
 
     fs.copyFileSync(binary, this.binaryPath);
     fs.chmodSync(this.binaryPath, 0o755);
+
+    if (process.platform === 'win32') {
+      const binaryDir = path.dirname(binary);
+      const entries = fs.readdirSync(binaryDir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isFile() && entry.name.toLowerCase().endsWith('.dll')) {
+          fs.copyFileSync(path.join(binaryDir, entry.name), path.join(this.binDir, entry.name));
+        }
+      }
+    }
 
     // Cleanup
     try { fs.unlinkSync(tmpFile); } catch (e) {}
@@ -224,7 +238,7 @@ class Transcriber {
   // ─── Compile from Source ──────────────────────────────────
 
   async compileBinary(progressCallback) {
-    const tmpDir = path.join(os.tmpdir(), 'magicwhisper-build');
+    const tmpDir = path.join(os.tmpdir(), `magicwhisper-build-${Date.now()}`);
 
     if (fs.existsSync(tmpDir)) {
       fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -316,7 +330,9 @@ class Transcriber {
         '-f', tempWav,
         '-l', options.language || 'en',
         '--no-timestamps',
-        '-t', String(threadCount)
+        '-t', String(threadCount),
+        '-bs', '1', // Greedy decoding for raw speed
+        '-mc', '512' // Max context constraint
       ];
 
       const output = await this.execCmd(this.binaryPath, args);
@@ -353,7 +369,8 @@ class Transcriber {
 
   async commandExists(cmd) {
     return new Promise((resolve) => {
-      exec(`which ${cmd}`, { env: SHELL_ENV }, (err) => {
+      const probe = process.platform === 'win32' ? `where ${cmd}` : `which ${cmd}`;
+      exec(probe, { env: SHELL_ENV }, (err) => {
         resolve(!err);
       });
     });

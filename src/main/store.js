@@ -33,6 +33,11 @@ const DEFAULTS = {
     autoPaste: true,
     autoAddToDictionary: true,
 
+    // Developer dictation
+    developerMode: false,
+    developerSyntaxFormatting: true,
+    developerFileTagging: true,
+
     // Overlay
     overlayEnabled: true,
     overlayPosition: 'top-center',

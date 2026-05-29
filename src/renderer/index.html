@@ -106,7 +106,7 @@
       <!-- Sidebar bottom -->
       <div class="sidebar-bottom">
         <div class="sidebar-version">
-          <span>MagicWhisper v1.0.0</span>
+          <span>MagicWhisper v<span data-app-version>1.0.2</span></span>
         </div>
         <button class="nav-item" data-page="settings-general" onclick="navigateTo('settings-general')" id="nav-settings">
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="3" stroke="currentColor" stroke-width="1.5"/><path d="M10 2V4M10 16V18M2 10H4M16 10H18M4.9 4.9L6.3 6.3M13.7 13.7L15.1 15.1M4.9 15.1L6.3 13.7M13.7 6.3L15.1 4.9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
@@ -309,9 +309,13 @@
               <div class="setting-info"><label>Show Flow bar at all times</label></div>
               <label class="toggle"><input type="checkbox" id="toggle-flowbar" checked onchange="saveSetting('overlayEnabled', this.checked)"><span class="toggle-slider"></span></label>
             </div>
-            <div class="setting-row last">
+            <div class="setting-row">
               <div class="setting-info"><label>Show app in dock</label></div>
               <label class="toggle"><input type="checkbox" id="toggle-dock" onchange="saveSetting('showInDock', this.checked)"><span class="toggle-slider"></span></label>
+            </div>
+            <div class="setting-row last">
+              <div class="setting-info"><label>Minimize to Tray on Close</label></div>
+              <label class="toggle"><input type="checkbox" id="toggle-minimize-tray" checked onchange="saveSetting('minimizeToTray', this.checked)"><span class="toggle-slider"></span></label>
             </div>
           </div>
 
@@ -450,6 +454,34 @@
         <div class="settings-page-content">
           <h1 class="settings-title">Advanced</h1>
 
+          <h3 class="settings-section-label">Developer Dictation</h3>
+          <p class="settings-section-desc">
+            Syntax-aware cleanup for coding prompts, developer jargon, case commands, and file references.
+          </p>
+          <div class="settings-group">
+            <div class="setting-row">
+              <div class="setting-info">
+                <label>Enable developer mode</label>
+                <span class="setting-desc">Recognizes terms like Supabase, MongoDB, Vercel, API, JSON, and CLI.</span>
+              </div>
+              <label class="toggle"><input type="checkbox" id="toggle-dev-mode" onchange="saveSetting('developerMode', this.checked)"><span class="toggle-slider"></span></label>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <label>Syntax formatting</label>
+                <span class="setting-desc">Turns "camel case user id", "open paren", "arrow", and similar phrases into code-friendly text.</span>
+              </div>
+              <label class="toggle"><input type="checkbox" id="toggle-dev-syntax" checked onchange="saveSetting('developerSyntaxFormatting', this.checked)"><span class="toggle-slider"></span></label>
+            </div>
+            <div class="setting-row last">
+              <div class="setting-info">
+                <label>File tagging</label>
+                <span class="setting-desc">Turns "file package json" or "file app tsx" into @package.json / @app.tsx for AI prompts.</span>
+              </div>
+              <label class="toggle"><input type="checkbox" id="toggle-dev-files" checked onchange="saveSetting('developerFileTagging', this.checked)"><span class="toggle-slider"></span></label>
+            </div>
+          </div>
+
           <h3 class="settings-section-label">Cloud Transcription (OpenAI API)</h3>
           <p class="settings-section-desc">
             Use OpenAI's Whisper API for faster, higher-quality transcription when connected.
@@ -565,6 +597,13 @@
           <div class="settings-group">
             <div class="setting-row">
               <div class="setting-info">
+                <label>Application Updates</label>
+                <span class="setting-desc" id="update-status">Ready to check for updates</span>
+              </div>
+              <button class="btn-beige" onclick="checkForAppUpdates()">Check</button>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info">
                 <label>Permission Status</label>
                 <span class="setting-desc" id="perm-status">Checking...</span>
               </div>
@@ -599,7 +638,7 @@
             </div>
             <div>
               <h3>MagicWhisper</h3>
-              <p>Version 1.0.0</p>
+              <p>Version <span data-app-version>1.0.2</span></p>
               <p class="about-desc-text">100% local AI voice-to-text dictation.<br>Powered by OpenAI Whisper, running entirely on your device.</p>
             </div>
           </div>

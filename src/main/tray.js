@@ -12,6 +12,10 @@ const { logger } = require('./logger');
 let trayIcon = null;
 
 function createTrayIcon(state = 'idle') {
+  if (process.platform === 'win32') {
+    return nativeImage.createFromPath(path.join(__dirname, '..', '..', 'assets', 'icon.png'));
+  }
+
   const size = 22;
 
   let svgContent;
@@ -105,10 +109,13 @@ function rebuildTrayMenu(mainWindow, deps = {}) {
     },
     {
       label: 'Check for updates...',
-      click: () => {
+      click: async () => {
         logger.info('tray', 'Check for updates clicked');
-        // Open GitHub releases page
-        require('electron').shell.openExternal('https://github.com/magicwhisper/releases');
+        if (deps.updater) {
+          await deps.updater.checkForUpdates(true);
+        } else {
+          require('electron').shell.openExternal('https://github.com/mujtabatariq18/magicwhisper/releases');
+        }
       }
     },
     { type: 'separator' },

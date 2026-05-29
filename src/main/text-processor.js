@@ -8,11 +8,13 @@
 // ============================================
 
 const { logger } = require('./logger');
+const { DeveloperProcessor } = require('./developer-processor');
 
 class TextProcessor {
   constructor(dictionary, snippets) {
     this.dictionary = dictionary;
     this.snippets = snippets;
+    this.developerProcessor = new DeveloperProcessor();
   }
 
   /**
@@ -20,7 +22,7 @@ class TextProcessor {
    * @param {string} rawText - Raw output from whisper
    * @returns {string} Cleaned and formatted text
    */
-  process(rawText) {
+  process(rawText, options = {}) {
     if (!rawText || !rawText.trim()) return '';
 
     let text = rawText.trim();
@@ -49,10 +51,18 @@ class TextProcessor {
       text = this.snippets.expand(text);
     }
 
-    // 7. Auto-punctuation & capitalization
-    text = this.autoPunctuation(text);
+    // 7. Developer-aware formatting
+    if (options.developerMode) {
+      text = this.developerProcessor.process(text, {
+        syntaxFormatting: options.developerSyntaxFormatting,
+        fileTagging: options.developerFileTagging
+      });
+    }
 
-    // 8. Final cleanup
+    // 8. Auto-punctuation & capitalization
+    text = this.autoPunctuation(text, { skipFinalPeriod: options.developerMode === true });
+
+    // 9. Final cleanup
     text = this.finalCleanup(text);
 
     if (text !== original) {
@@ -152,7 +162,7 @@ class TextProcessor {
   /**
    * Auto-punctuation and capitalization.
    */
-  autoPunctuation(text) {
+  autoPunctuation(text, options = {}) {
     let result = text;
 
     // Capitalize first letter of the text
@@ -164,7 +174,7 @@ class TextProcessor {
     });
 
     // Add period at end if missing
-    if (result.length > 0 && !/[.!?]$/.test(result)) {
+    if (!options.skipFinalPeriod && result.length > 0 && !/[.!?]$/.test(result)) {
       result += '.';
     }
 

@@ -1,7 +1,11 @@
 {
   "name": "magicwhisper",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "Premium voice-to-text dictation — speak naturally, get polished text in any app",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mujtabatariq18/magicwhisper.git"
+  },
   "main": "src/main/main.js",
   "scripts": {
     "start": "electron .",
@@ -14,11 +18,12 @@
   "author": "MagicWhisper",
   "license": "MIT",
   "devDependencies": {
-    "electron": "^33.0.0",
-    "electron-builder": "^25.0.0"
+    "electron": "^41.2.1",
+    "electron-builder": "^26.8.1"
   },
   "dependencies": {
-    "electron-store": "^8.2.0"
+    "electron-store": "^8.2.0",
+    "electron-updater": "^6.8.3"
   },
   "build": {
     "appId": "com.magicwhisper.app",
@@ -26,6 +31,14 @@
     "directories": {
       "output": "dist"
     },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "mujtabatariq18",
+        "repo": "magicwhisper",
+        "releaseType": "release"
+      }
+    ],
     "files": [
       "src/**/*",
       "assets/**/*",
@@ -35,12 +48,16 @@
       {
         "from": "bin/",
         "to": "bin",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       },
       {
         "from": "models/",
         "to": "models",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "mac": {
@@ -49,7 +66,9 @@
       "target": [
         {
           "target": "dmg",
-          "arch": ["arm64"]
+          "arch": [
+            "arm64"
+          ]
         }
       ],
       "extendInfo": {
@@ -65,14 +84,24 @@
     },
     "win": {
       "icon": "assets/icon.ico",
-      "target": ["nsis"]
+      "target": [
+        "nsis"
+      ]
     },
     "dmg": {
       "title": "MagicWhisper",
       "iconSize": 80,
       "contents": [
-        { "x": 130, "y": 220 },
-        { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
       ]
     },
     "nsis": {

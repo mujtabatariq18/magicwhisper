@@ -1,0 +1,48 @@
+name: Build and Publish Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    name: Windows installer
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Prepare optional bundled folders
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path bin | Out-Null
+          New-Item -ItemType Directory -Force -Path models | Out-Null
+
+      - name: Build and publish Windows release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run build:win -- --publish always
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: magicwhisper-windows-installer
+          path: |
+            dist/MagicWhisper Setup *.exe
+            dist/MagicWhisper Setup *.exe.blockmap
+            dist/latest.yml
