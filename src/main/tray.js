@@ -108,6 +108,16 @@ function rebuildTrayMenu(mainWindow, deps = {}) {
       }
     },
     {
+      label: 'Meeting Notes',
+      click: () => {
+        if (mainWindow) {
+          mainWindow.show();
+          mainWindow.focus();
+          mainWindow.webContents.send('navigate', 'meetings');
+        }
+      }
+    },
+    {
       label: 'Check for updates...',
       click: async () => {
         logger.info('tray', 'Check for updates clicked');

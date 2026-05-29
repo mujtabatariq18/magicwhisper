@@ -39,6 +39,15 @@ contextBridge.exposeInMainWorld('magicAPI', {
   copyHistoryItem: (id) => ipcRenderer.invoke('copy-history-item', id),
   pasteHistoryItem: (id) => ipcRenderer.invoke('paste-history-item', id),
 
+  getMeetings: () => ipcRenderer.invoke('get-meetings'),
+  getMeeting: (id) => ipcRenderer.invoke('get-meeting', id),
+  startMeeting: () => ipcRenderer.invoke('start-meeting'),
+  stopMeeting: () => ipcRenderer.invoke('stop-meeting'),
+  deleteMeeting: (id) => ipcRenderer.invoke('delete-meeting', id),
+  renameMeeting: (id, title) => ipcRenderer.invoke('rename-meeting', { id, title }),
+  sendMeetingAudioChunk: (payload) => ipcRenderer.send('meeting-audio-chunk', payload),
+  meetingCaptureStopped: (meetingId) => ipcRenderer.send('meeting-capture-stopped', { meetingId }),
+
   // ─── Dictionary ───────────────────────────────────────
   getDictionary: () => ipcRenderer.invoke('get-dictionary'),
   addDictionaryWord: (word, category, alternatives) =>
@@ -152,6 +161,27 @@ contextBridge.exposeInMainWorld('magicAPI', {
   },
   onUpdateStatus: (callback) => {
     ipcRenderer.on('update-status', (event, status) => callback(status));
+  },
+  onStartMeetingRecording: (callback) => {
+    ipcRenderer.on('start-meeting-recording', (event, data) => callback(data));
+  },
+  onStopMeetingRecording: (callback) => {
+    ipcRenderer.on('stop-meeting-recording', (event, data) => callback(data));
+  },
+  onMeetingState: (callback) => {
+    ipcRenderer.on('meeting-state', (event, data) => callback(data));
+  },
+  onMeetingSegment: (callback) => {
+    ipcRenderer.on('meeting-segment', (event, segment) => callback(segment));
+  },
+  onMeetingUpdated: (callback) => {
+    ipcRenderer.on('meeting-updated', (event, meeting) => callback(meeting));
+  },
+  onMeetingFinished: (callback) => {
+    ipcRenderer.on('meeting-finished', (event, meeting) => callback(meeting));
+  },
+  onMeetingError: (callback) => {
+    ipcRenderer.on('meeting-error', (event, error) => callback(error));
   },
 
   // ─── Platform Info ────────────────────────────────────

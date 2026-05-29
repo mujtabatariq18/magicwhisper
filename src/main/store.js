@@ -17,11 +17,17 @@ const DEFAULTS = {
   settings: {
     // General
     hotkey: process.platform === 'darwin' ? 'Option+Space' : 'Ctrl+Shift+Space',
+    meetingHotkey: process.platform === 'darwin' ? 'Option+Shift+Space' : 'Ctrl+Shift+M',
     model: 'ggml-large-v3-turbo.bin',
     language: 'en',
     microphone: 'default',
     localAcceleration: 'auto',
     preferGpuForLargeModels: true,
+    meetingLanguage: 'auto',
+    meetingChunkSeconds: 20,
+    meetingDefaultTitle: '',
+    meetingParticipantHints: '',
+    meetingAudioSource: 'microphone',
 
     // System
     launchAtLogin: false,

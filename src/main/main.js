@@ -28,6 +28,7 @@ const { SoundManager } = require('./sound');
 const { ChallengesManager } = require('./challenges');
 const { CloudTranscriber } = require('./cloud-transcriber');
 const { UpdateManager } = require('./updater');
+const { MeetingNotesManager } = require('./meeting-notes');
 
 // ── State ────────────────────────────────────────────────
 let mainWindow = null;
@@ -48,12 +49,16 @@ let soundManager = null;
 let challenges = null;
 let cloudTranscriber = null;
 let updateManager = null;
+let meetingNotes = null;
 let isRecording = false;
 let isProcessing = false;
 let recordingSafetyTimer = null;
+let meetingHotkeyManager = null;
+let meetingState = null;
 
 const isMac = process.platform === 'darwin';
 const MAX_RECORDING_DURATION_MS = 5 * 60 * 1000;
+const MAX_MEETING_DURATION_MS = 4 * 60 * 60 * 1000;
 
 // ── Enforce Single Instance ─────────────────────────────
 const gotTheLock = app.requestSingleInstanceLock();
@@ -136,6 +141,11 @@ function createWindow() {
 // ── Recording Flow ──────────────────────────────────────
 function startRecording() {
   if (isRecording) return;
+  if (meetingState?.active || meetingState?.stopping) {
+    logger.debug('main', 'Ignoring record start while meeting recorder is active');
+    if (hotkeyManager) hotkeyManager.resetRecordingState();
+    return;
+  }
   if (isProcessing) {
     logger.debug('main', 'Ignoring record start while transcription is processing');
     if (hotkeyManager) hotkeyManager.resetRecordingState();
@@ -328,14 +338,195 @@ async function handleAudioData(event, audioBuffer, recordDuration) {
 }
 
 // ── Hotkeys ─────────────────────────────────────────────
+function createMeetingState() {
+  return {
+    active: false,
+    stopping: false,
+    captureStopped: false,
+    meetingId: null,
+    startedAt: null,
+    safetyTimer: null,
+    pendingChunks: 0,
+    chunkIndex: 0,
+    queue: Promise.resolve()
+  };
+}
+
+function startMeetingRecording() {
+  if (meetingState?.active || meetingState?.stopping) return;
+  if (isRecording || isProcessing) {
+    logger.debug('main', 'Ignoring meeting start while dictation is busy');
+    if (meetingHotkeyManager) meetingHotkeyManager.resetRecordingState();
+    return;
+  }
+
+  const settings = store.get('settings', {});
+  const meeting = meetingNotes.createMeeting({
+    title: settings.meetingDefaultTitle || '',
+    language: settings.meetingLanguage || settings.language || 'auto',
+    participantHints: settings.meetingParticipantHints || '',
+    model: settings.model || 'ggml-large-v3-turbo.bin',
+    source: settings.meetingAudioSource || 'microphone'
+  });
+
+  meetingState = createMeetingState();
+  meetingState.active = true;
+  meetingState.meetingId = meeting.id;
+  meetingState.startedAt = Date.now();
+
+  updateTrayState(tray, 'recording');
+  updateOverlayState('recording');
+  logger.info('main', 'Meeting recorder started', { id: meeting.id, title: meeting.title });
+
+  if (settings.soundFeedback !== false) soundManager.play('start');
+
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('meeting-state', { active: true, meeting: meetingNotes.publicMeeting(meeting) });
+    mainWindow.webContents.send('start-meeting-recording', {
+      meetingId: meeting.id,
+      chunkSeconds: Number(settings.meetingChunkSeconds || 20),
+      language: meeting.language
+    });
+  }
+
+  meetingState.safetyTimer = setTimeout(() => {
+    if (!meetingState?.active) return;
+    logger.warn('main', 'Meeting safety timeout reached; forcing stop');
+    if (meetingHotkeyManager) meetingHotkeyManager.forceStop();
+  }, MAX_MEETING_DURATION_MS);
+}
+
+function stopMeetingRecording() {
+  if (!meetingState?.active && !meetingState?.stopping) return;
+  meetingState.active = false;
+  meetingState.stopping = true;
+  clearTimeout(meetingState.safetyTimer);
+  meetingState.safetyTimer = null;
+
+  updateTrayState(tray, 'processing');
+  updateOverlayState('processing');
+
+  const settings = store.get('settings', {});
+  if (settings.soundFeedback !== false) soundManager.play('stop');
+
+  logger.info('main', 'Meeting recorder stopping', { id: meetingState.meetingId });
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('meeting-state', {
+      active: false,
+      stopping: true,
+      meeting: meetingNotes.publicMeeting(meetingNotes.getMeeting(meetingState.meetingId))
+    });
+    mainWindow.webContents.send('stop-meeting-recording', { meetingId: meetingState.meetingId });
+  }
+}
+
+function handleMeetingAudioChunk(event, payload = {}) {
+  if (!meetingState?.meetingId || payload.meetingId !== meetingState.meetingId) return;
+  if (!payload.audioBuffer) return;
+
+  meetingState.pendingChunks += 1;
+  const chunkIndex = meetingState.chunkIndex++;
+  meetingState.queue = meetingState.queue
+    .then(() => transcribeMeetingChunk({ ...payload, chunkIndex }))
+    .catch((err) => {
+      logger.error('main', 'Meeting chunk pipeline error', { error: err.message, stack: err.stack });
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('meeting-error', err.message);
+      }
+    })
+    .finally(() => {
+      meetingState.pendingChunks = Math.max(0, meetingState.pendingChunks - 1);
+      maybeFinalizeMeeting();
+    });
+}
+
+async function transcribeMeetingChunk(payload) {
+  const settings = store.get('settings', {});
+  const meeting = meetingNotes.getMeeting(payload.meetingId);
+  if (!meeting) return;
+
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('meeting-state', {
+      active: meetingState.active,
+      stopping: meetingState.stopping,
+      processing: true,
+      meeting: meetingNotes.publicMeeting(meeting)
+    });
+  }
+
+  const text = await transcriber.transcribe(payload.audioBuffer, {
+    model: settings.model || 'ggml-large-v3-turbo.bin',
+    language: settings.meetingLanguage || settings.language || 'auto',
+    acceleration: settings.localAcceleration || 'auto',
+    preferGpu: settings.preferGpuForLargeModels !== false
+  });
+
+  const cleaned = textProcessor.process(text, {
+    developerMode: false,
+    developerSyntaxFormatting: false,
+    developerFileTagging: false
+  });
+
+  if (!cleaned.trim()) return;
+
+  const result = meetingNotes.addSegment(payload.meetingId, {
+    text: cleaned,
+    startedAt: payload.startedAt,
+    endedAt: payload.endedAt,
+    durationMs: payload.durationMs,
+    fingerprint: payload.fingerprint,
+    chunkIndex: payload.chunkIndex
+  });
+
+  if (result && mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('meeting-segment', result.segment);
+    mainWindow.webContents.send('meeting-updated', result.meeting);
+  }
+}
+
+function handleMeetingCaptureStopped(event, payload = {}) {
+  if (!meetingState?.meetingId || payload.meetingId !== meetingState.meetingId) return;
+  meetingState.captureStopped = true;
+  maybeFinalizeMeeting();
+}
+
+function maybeFinalizeMeeting() {
+  if (!meetingState?.stopping || !meetingState.captureStopped || meetingState.pendingChunks > 0) return;
+  const meeting = meetingNotes.finishMeeting(meetingState.meetingId);
+  const settings = store.get('settings', {});
+  if (settings.soundFeedback !== false) soundManager.play('success');
+
+  updateTrayState(tray, 'idle');
+  updateOverlayState('idle');
+
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('meeting-state', { active: false, stopping: false, processing: false, meeting });
+    mainWindow.webContents.send('meeting-finished', meeting);
+  }
+
+  if (meetingHotkeyManager) meetingHotkeyManager.resetRecordingState();
+  meetingState = createMeetingState();
+}
+
 function registerHotkeys() {
   const settings = store.get('settings', {});
   const shortcut = settings.hotkey || (isMac ? 'Option+Space' : 'Ctrl+Shift+Space');
+  const meetingShortcut = settings.meetingHotkey || (isMac ? 'Option+Shift+Space' : 'Ctrl+Shift+M');
 
   hotkeyManager.register(shortcut, {
     onStart: () => startRecording(),
     onStop: (duration) => stopRecording(duration)
   });
+
+  if (meetingHotkeyManager && meetingShortcut !== shortcut) {
+    meetingHotkeyManager.register(meetingShortcut, {
+      onStart: () => startMeetingRecording(),
+      onStop: () => stopMeetingRecording()
+    });
+  } else if (meetingHotkeyManager) {
+    logger.warn('main', 'Meeting hotkey conflicts with dictation hotkey; meeting hotkey not registered', { shortcut });
+    meetingHotkeyManager.unregister();
+  }
 }
 
 // ── IPC Handlers ────────────────────────────────────────
@@ -348,6 +539,9 @@ function setupIPC() {
   ipcMain.on('audio-level', (event, level) => {
     if (isRecording) sendAudioLevel(level);
   });
+
+  ipcMain.on('meeting-audio-chunk', handleMeetingAudioChunk);
+  ipcMain.on('meeting-capture-stopped', handleMeetingCaptureStopped);
 
   ipcMain.on('recording-cancelled', (event, reason) => {
     logger.warn('main', 'Recording cancelled by renderer', { reason });
@@ -465,6 +659,20 @@ function setupIPC() {
   });
 
   // ─ Dictionary ─
+  ipcMain.handle('get-meetings', () => meetingNotes.listMeetings());
+  ipcMain.handle('get-meeting', (event, id) => meetingNotes.publicMeeting(meetingNotes.getMeeting(id)));
+  ipcMain.handle('delete-meeting', (event, id) => meetingNotes.deleteMeeting(id));
+  ipcMain.handle('rename-meeting', (event, { id, title }) =>
+    meetingNotes.publicMeeting(meetingNotes.renameMeeting(id, title)));
+  ipcMain.handle('start-meeting', () => {
+    startMeetingRecording();
+    return meetingNotes.publicMeeting(meetingNotes.getMeeting(meetingState?.meetingId));
+  });
+  ipcMain.handle('stop-meeting', () => {
+    stopMeetingRecording();
+    return true;
+  });
+
   ipcMain.handle('get-dictionary', () => dictionary.getAll());
   ipcMain.handle('add-dictionary-word', (event, { word, category, alternatives }) =>
     dictionary.add(word, category, alternatives));
@@ -622,6 +830,7 @@ app.whenReady().then(async () => {
   injector = new TextInjector();
   clipboardHistory = new ClipboardHistory();
   hotkeyManager = new HotkeyManager();
+  meetingHotkeyManager = new HotkeyManager();
   dictionary = new Dictionary();
   snippets = new Snippets();
   textProcessor = new TextProcessor(dictionary, snippets);
@@ -632,6 +841,8 @@ app.whenReady().then(async () => {
   challenges = new ChallengesManager();
   cloudTranscriber = new CloudTranscriber();
   updateManager = new UpdateManager();
+  meetingNotes = new MeetingNotesManager();
+  meetingState = createMeetingState();
 
   // Apply cloud transcription settings
   cloudTranscriber.configure({
@@ -695,5 +906,6 @@ app.on('before-quit', () => {
     mainWindow.webContents.send('release-microphone');
   }
   if (hotkeyManager) hotkeyManager.destroy();
+  if (meetingHotkeyManager) meetingHotkeyManager.destroy();
   logger.info('main', '═══ MagicWhisper Shutting Down ═══');
 });

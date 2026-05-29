@@ -9,6 +9,11 @@ let persistentMicStream = null;
 let micSafetyTimer = null;
 let isMicCapturing = false;
 let currentPage = 'home';
+let activeMeeting = null;
+let isMeetingRecording = false;
+let meetingCapture = null;
+let meetingChunkTimer = null;
+let selectedMeetingId = null;
 
 const MAX_RENDERER_RECORDING_MS = 5 * 60 * 1000;
 
@@ -23,6 +28,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   await loadChallengeProgress();
   await loadWeeklyChart();
   await loadHomeHistory();
+  await loadMeetings();
   setupEventListeners();
   setupScratchpad();
 });
@@ -37,6 +43,7 @@ async function loadAppVersion() {
 
 window.addEventListener('beforeunload', () => {
   releaseMicResources();
+  stopMeetingCapture(false);
 });
 
 function updateGreeting() {
@@ -52,9 +59,17 @@ async function loadSettings() {
 
   // Apply settings to UI
   const shortcut = currentSettings.hotkey || (window.magicAPI.isMac ? 'Option+Space' : 'Ctrl+Shift+Space');
+  const meetingShortcut = currentSettings.meetingHotkey || (window.magicAPI.isMac ? 'Option+Shift+Space' : 'Ctrl+Shift+M');
+  currentSettings.meetingHotkey = meetingShortcut;
+  currentSettings.meetingChunkSeconds = currentSettings.meetingChunkSeconds || 20;
+  currentSettings.meetingLanguage = currentSettings.meetingLanguage || 'auto';
   document.getElementById('shortcut-desc').innerHTML =
     `Press <strong>${shortcut.replace('+', ' + ')}</strong> and speak. <a href="#" onclick="navigateTo(\'settings-general\');return false;">Change →</a>`;
   document.getElementById('status-detail').textContent = `Press ${shortcut} to dictate`;
+  const meetingShortcutDesc = document.getElementById('meeting-shortcut-desc');
+  if (meetingShortcutDesc) meetingShortcutDesc.innerHTML = `Press <strong>${meetingShortcut.replace(/\+/g, ' + ')}</strong> to start or stop live notes.`;
+  const meetingStatusDetail = document.getElementById('meeting-status-detail');
+  if (meetingStatusDetail) meetingStatusDetail.textContent = `Press ${meetingShortcut} to start live meeting notes`;
 
   // Language name
   const langNames = {
@@ -133,6 +148,7 @@ function setupEventListeners() {
   if (window.magicAPI.onReleaseMicrophone) {
     window.magicAPI.onReleaseMicrophone(() => {
       releaseMicResources();
+      stopMeetingCapture(false);
     });
   }
 
@@ -223,6 +239,52 @@ function setupEventListeners() {
       updateUpdateStatus(status);
     });
   }
+
+  if (window.magicAPI.onStartMeetingRecording) {
+    window.magicAPI.onStartMeetingRecording(async (data) => {
+      await startMeetingCapture(data);
+    });
+  }
+
+  if (window.magicAPI.onStopMeetingRecording) {
+    window.magicAPI.onStopMeetingRecording(async () => {
+      await stopMeetingCapture();
+    });
+  }
+
+  if (window.magicAPI.onMeetingState) {
+    window.magicAPI.onMeetingState((state) => updateMeetingState(state));
+  }
+
+  if (window.magicAPI.onMeetingSegment) {
+    window.magicAPI.onMeetingSegment((segment) => appendMeetingSegment(segment));
+  }
+
+  if (window.magicAPI.onMeetingUpdated) {
+    window.magicAPI.onMeetingUpdated((meeting) => {
+      activeMeeting = meeting;
+      selectedMeetingId = meeting?.id || selectedMeetingId;
+      renderMeeting(meeting);
+      loadMeetings();
+    });
+  }
+
+  if (window.magicAPI.onMeetingFinished) {
+    window.magicAPI.onMeetingFinished((meeting) => {
+      activeMeeting = meeting;
+      selectedMeetingId = meeting?.id || selectedMeetingId;
+      renderMeeting(meeting);
+      loadMeetings();
+      showToast('Meeting notes saved');
+    });
+  }
+
+  if (window.magicAPI.onMeetingError) {
+    window.magicAPI.onMeetingError((error) => {
+      updateMeetingStatus('Error', error, 'processing');
+      showToast('Meeting transcription error');
+    });
+  }
 }
 
 // ── Navigation ──────────────────────────────────────────
@@ -245,6 +307,7 @@ function navigateTo(page) {
 
   // Load page data
   if (page === 'home') { loadHomeStats(); loadChallengeProgress(); loadWeeklyChart(); loadHomeHistory(); }
+  if (page === 'meetings') loadMeetings();
   if (page === 'dictionary') loadDictionary();
   if (page === 'snippets') loadSnippets();
   if (page === 'style') loadStyles();
@@ -325,6 +388,226 @@ async function deleteItem(id) {
 }
 
 // ── Dictionary ──────────────────────────────────────────
+
+async function loadMeetings() {
+  if (!window.magicAPI.getMeetings) return;
+  try {
+    const meetings = await window.magicAPI.getMeetings();
+    renderMeetingList(meetings);
+    if (!selectedMeetingId && meetings.length > 0) {
+      selectedMeetingId = meetings[0].id;
+      const meeting = await window.magicAPI.getMeeting(selectedMeetingId);
+      renderMeeting(meeting);
+    }
+  } catch (e) {
+    console.error('Failed to load meetings:', e);
+  }
+}
+
+function renderMeetingList(meetings) {
+  const list = document.getElementById('meeting-list');
+  if (!list) return;
+  if (!meetings || meetings.length === 0) {
+    list.innerHTML = '<div class="empty-state"><p>No meetings saved yet.</p></div>';
+    return;
+  }
+
+  list.innerHTML = meetings.map(meeting => `
+    <button class="meeting-list-item ${meeting.id === selectedMeetingId ? 'active' : ''}" onclick="selectMeeting('${meeting.id}')">
+      <span class="meeting-list-title">${escapeHtml(meeting.title)}</span>
+      <span class="meeting-list-meta">${formatDateTime(meeting.createdAt)} · ${meeting.segmentCount} segment${meeting.segmentCount === 1 ? '' : 's'}</span>
+      ${meeting.summaryPreview ? `<span class="meeting-list-preview">${escapeHtml(meeting.summaryPreview)}</span>` : ''}
+    </button>
+  `).join('');
+}
+
+async function selectMeeting(id) {
+  selectedMeetingId = id;
+  const meeting = await window.magicAPI.getMeeting(id);
+  renderMeeting(meeting);
+  loadMeetings();
+}
+
+function renderMeeting(meeting) {
+  if (!meeting) return;
+  activeMeeting = meeting;
+  selectedMeetingId = meeting.id;
+  const titleInput = document.getElementById('meeting-title-input');
+  if (titleInput) titleInput.value = meeting.title || '';
+  const count = document.getElementById('meeting-segment-count');
+  if (count) count.textContent = `${(meeting.segments || []).length} segment${(meeting.segments || []).length === 1 ? '' : 's'}`;
+  renderMeetingTranscript(meeting);
+  renderMeetingSummary(meeting);
+}
+
+function renderMeetingTranscript(meeting) {
+  const container = document.getElementById('meeting-transcript');
+  if (!container) return;
+  const segments = meeting.segments || [];
+  if (segments.length === 0) {
+    container.innerHTML = '<div class="empty-state"><p>Listening will create timestamped transcript segments here.</p></div>';
+    return;
+  }
+  container.innerHTML = segments.map(segment => renderMeetingSegment(segment)).join('');
+  container.scrollTop = container.scrollHeight;
+}
+
+function appendMeetingSegment(segment) {
+  const container = document.getElementById('meeting-transcript');
+  if (!container) return;
+  const empty = container.querySelector('.empty-state');
+  if (empty) container.innerHTML = '';
+  container.insertAdjacentHTML('beforeend', renderMeetingSegment(segment));
+  container.scrollTop = container.scrollHeight;
+}
+
+function renderMeetingSegment(segment) {
+  const speaker = segment.speaker?.label || 'Speaker';
+  const confidence = segment.confidence ? `${Math.round(segment.confidence * 100)}%` : '';
+  return `
+    <div class="meeting-segment">
+      <div class="meeting-segment-meta">
+        <span>${escapeHtml(speaker)}</span>
+        <span>${formatTime(segment.startedAt)}</span>
+        ${confidence ? `<span>${confidence}</span>` : ''}
+      </div>
+      <p>${escapeHtml(segment.text)}</p>
+    </div>
+  `;
+}
+
+function renderMeetingSummary(meeting) {
+  const container = document.getElementById('meeting-summary');
+  if (!container) return;
+  const summary = meeting.summary || {};
+  if (!summary.overview && (!meeting.segments || meeting.segments.length === 0)) {
+    container.innerHTML = '<div class="empty-state"><p>Summary, actions, decisions, and questions appear as the meeting runs.</p></div>';
+    return;
+  }
+
+  container.innerHTML = `
+    <div class="summary-block">
+      <h3>Overview</h3>
+      <p>${escapeHtml(summary.overview || 'Summary is warming up as transcript segments arrive.')}</p>
+    </div>
+    ${renderSummaryList('Key Points', summary.keyPoints)}
+    ${renderSummaryList('Action Items', summary.actionItems)}
+    ${renderSummaryList('Decisions', summary.decisions)}
+    ${renderSummaryList('Questions', summary.questions)}
+    ${summary.topics?.length ? `<div class="topic-row">${summary.topics.map(t => `<span>${escapeHtml(t)}</span>`).join('')}</div>` : ''}
+  `;
+}
+
+function renderSummaryList(title, items = []) {
+  if (!items || items.length === 0) return '';
+  return `
+    <div class="summary-block">
+      <h3>${title}</h3>
+      <ul>${items.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>
+    </div>
+  `;
+}
+
+async function toggleMeetingRecording() {
+  if (isMeetingRecording) {
+    await window.magicAPI.stopMeeting();
+  } else {
+    await persistMeetingConfig();
+    const meeting = await window.magicAPI.startMeeting();
+    if (meeting) {
+      activeMeeting = meeting;
+      selectedMeetingId = meeting.id;
+      renderMeeting(meeting);
+      navigateTo('meetings');
+    }
+  }
+}
+
+async function persistMeetingConfig() {
+  const titleInput = document.getElementById('meeting-title-input');
+  if (titleInput?.value?.trim()) currentSettings.meetingDefaultTitle = titleInput.value.trim();
+  await window.magicAPI.saveSettings(currentSettings);
+}
+
+async function saveMeetingTitle() {
+  const title = document.getElementById('meeting-title-input')?.value?.trim();
+  if (!title) return;
+  if (selectedMeetingId && window.magicAPI.renameMeeting) {
+    const meeting = await window.magicAPI.renameMeeting(selectedMeetingId, title);
+    if (meeting) renderMeeting(meeting);
+    await loadMeetings();
+  }
+  currentSettings.meetingDefaultTitle = title;
+  await saveSetting('meetingDefaultTitle', title);
+  showToast('Meeting title saved');
+}
+
+function updateMeetingState(state = {}) {
+  if (state.meeting) {
+    activeMeeting = state.meeting;
+    selectedMeetingId = state.meeting.id;
+    renderMeeting(state.meeting);
+  }
+  isMeetingRecording = !!state.active || !!state.stopping;
+  const btn = document.getElementById('meeting-toggle-btn');
+  if (btn) {
+    btn.textContent = state.active ? 'Stop Meeting' : (state.stopping || state.processing ? 'Saving...' : 'Start Meeting');
+    btn.disabled = !!state.stopping || (!!state.processing && !state.active);
+  }
+  if (state.active) updateMeetingStatus('Recording', 'Capturing live notes locally...', 'recording');
+  else if (state.stopping || state.processing) updateMeetingStatus('Processing', 'Finishing final chunks and summary...', 'processing');
+  else updateMeetingStatus('Ready', `Press ${currentSettings.meetingHotkey || 'Ctrl+Shift+M'} to start live meeting notes`, 'idle');
+}
+
+function updateMeetingStatus(labelText, detailText, dotClass) {
+  const dot = document.getElementById('meeting-status-dot');
+  const label = document.getElementById('meeting-status-label');
+  const detail = document.getElementById('meeting-status-detail');
+  if (dot) dot.className = `status-dot ${dotClass || 'idle'}`;
+  if (label) label.textContent = labelText;
+  if (detail) detail.textContent = detailText;
+}
+
+function showMeetingSetupDialog() {
+  const langs = [
+    ['auto', 'Auto-detect'], ['en', 'English'], ['es', 'Spanish'], ['fr', 'French'], ['de', 'German'],
+    ['it', 'Italian'], ['pt', 'Portuguese'], ['ru', 'Russian'], ['ja', 'Japanese'],
+    ['ko', 'Korean'], ['zh', 'Chinese'], ['ar', 'Arabic'], ['hi', 'Hindi'], ['ur', 'Urdu']
+  ];
+  const langOptions = langs.map(([code, name]) =>
+    `<option value="${code}" ${currentSettings.meetingLanguage === code ? 'selected' : ''}>${name}</option>`
+  ).join('');
+
+  openModal('Meeting Note Setup', `
+    <label>Default meeting title</label>
+    <input type="text" id="meeting-config-title" placeholder="e.g. Weekly operations sync" value="${escapeAttr(currentSettings.meetingDefaultTitle || '')}">
+    <label>Participant names or hints</label>
+    <textarea id="meeting-config-participants" placeholder="Mujtaba, Sarah, Ahmed">${escapeHtml(currentSettings.meetingParticipantHints || '')}</textarea>
+    <label>Meeting language</label>
+    <select id="meeting-config-language">${langOptions}</select>
+    <label>Live chunk length</label>
+    <select id="meeting-config-chunks">
+      <option value="10" ${currentSettings.meetingChunkSeconds === 10 ? 'selected' : ''}>10 seconds</option>
+      <option value="20" ${currentSettings.meetingChunkSeconds === 20 ? 'selected' : ''}>20 seconds</option>
+      <option value="30" ${currentSettings.meetingChunkSeconds === 30 ? 'selected' : ''}>30 seconds</option>
+    </select>
+    <p style="font-size:12px;color:var(--text-secondary);margin-top:10px;">For Zoom or Google Meet, select a loopback or Stereo Mix input in Microphone settings if you want direct system audio. The selected microphone also works for in-person meetings.</p>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal()">Cancel</button>
+      <button class="btn-primary" onclick="saveMeetingConfig()">Save</button>
+    </div>
+  `);
+}
+
+async function saveMeetingConfig() {
+  currentSettings.meetingDefaultTitle = document.getElementById('meeting-config-title').value.trim();
+  currentSettings.meetingParticipantHints = document.getElementById('meeting-config-participants').value.trim();
+  currentSettings.meetingLanguage = document.getElementById('meeting-config-language').value;
+  currentSettings.meetingChunkSeconds = parseInt(document.getElementById('meeting-config-chunks').value, 10);
+  await window.magicAPI.saveSettings(currentSettings);
+  closeModal();
+  showToast('Meeting setup saved');
+}
 
 async function loadDictionary(query) {
   try {
@@ -647,6 +930,43 @@ function startRecordingShortcut() {
 }
 
 // ── Language / Microphone Selectors ─────────────────────
+
+function startMeetingShortcutCapture() {
+  if (recordingShortcut) return;
+  recordingShortcut = true;
+  const btn = document.getElementById('change-meeting-shortcut-btn');
+  if (btn) btn.textContent = 'Press keys...';
+
+  const handler = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (['Shift', 'Control', 'Alt', 'Meta'].includes(e.key)) return;
+
+    const parts = [];
+    if (e.ctrlKey) parts.push('Control');
+    if (e.altKey) parts.push('Option');
+    if (e.shiftKey) parts.push('Shift');
+    if (e.metaKey) parts.push('Command');
+
+    let key = e.key;
+    if (key === ' ') key = 'Space';
+    else if (key.length === 1) key = key.toUpperCase();
+    parts.push(key);
+
+    const shortcut = parts.join('+');
+    currentSettings.meetingHotkey = shortcut;
+    saveSetting('meetingHotkey', shortcut);
+    const desc = document.getElementById('meeting-shortcut-desc');
+    if (desc) desc.innerHTML = `Press <strong>${shortcut.replace(/\+/g, ' + ')}</strong> to start or stop live notes.`;
+    updateMeetingStatus('Ready', `Press ${shortcut} to start live meeting notes`, 'idle');
+
+    recordingShortcut = false;
+    if (btn) btn.textContent = 'Change';
+    document.removeEventListener('keydown', handler);
+    showToast(`Meeting shortcut set to ${shortcut}`);
+  };
+  document.addEventListener('keydown', handler);
+}
 
 function showLanguageSelector() {
   const langs = [
@@ -1047,6 +1367,163 @@ async function startSetup() {
 
 // ── Audio Recording ─────────────────────────────────────
 
+function getSelectedAudioConstraints() {
+  const selectedMic = currentSettings.microphone && currentSettings.microphone !== 'default'
+    ? { exact: currentSettings.microphone }
+    : undefined;
+
+  return {
+    ...(selectedMic ? { deviceId: selectedMic } : {}),
+    channelCount: 1,
+    sampleRate: 16000,
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true
+  };
+}
+
+async function startMeetingCapture(data = {}) {
+  try {
+    await stopMeetingCapture(false);
+    isMeetingRecording = true;
+    const chunkSeconds = Math.max(5, Math.min(60, Number(data.chunkSeconds || currentSettings.meetingChunkSeconds || 20)));
+    const meetingId = data.meetingId;
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: getSelectedAudioConstraints() });
+    const audioContext = new AudioContext({ sampleRate: 16000 });
+    const source = audioContext.createMediaStreamSource(stream);
+    const processor = audioContext.createScriptProcessor(4096, 1, 1);
+    const silentSink = audioContext.createGain();
+
+    meetingCapture = {
+      meetingId,
+      stream,
+      audioContext,
+      source,
+      processor,
+      silentSink,
+      chunks: [],
+      startedAt: Date.now(),
+      chunkStartedAt: Date.now(),
+      sampleCount: 0,
+      chunkSeconds
+    };
+
+    processor.onaudioprocess = (e) => {
+      if (!meetingCapture) return;
+      const input = e.inputBuffer.getChannelData(0);
+      const copy = new Float32Array(input);
+      meetingCapture.chunks.push(copy);
+      meetingCapture.sampleCount += copy.length;
+
+      if (meetingCapture.sampleCount >= 16000 * meetingCapture.chunkSeconds) {
+        flushMeetingChunk(false);
+      }
+    };
+
+    silentSink.gain.value = 0;
+    source.connect(processor);
+    processor.connect(silentSink);
+    silentSink.connect(audioContext.destination);
+    updateMeetingStatus('Recording', 'Capturing live notes locally...', 'recording');
+
+    meetingChunkTimer = setInterval(() => flushMeetingChunk(false), chunkSeconds * 1000);
+  } catch (err) {
+    console.error('Meeting capture failed:', err);
+    isMeetingRecording = false;
+    await stopMeetingCapture(false);
+    updateMeetingStatus('Error', err.message, 'processing');
+    showToast('Meeting microphone failed');
+  }
+}
+
+async function stopMeetingCapture(notifyMain = true) {
+  if (meetingCapture) flushMeetingChunk(true);
+  clearInterval(meetingChunkTimer);
+  meetingChunkTimer = null;
+
+  const capture = meetingCapture;
+  meetingCapture = null;
+  isMeetingRecording = false;
+
+  if (capture) {
+    try { capture.processor.disconnect(); } catch (e) {}
+    try { capture.source.disconnect(); } catch (e) {}
+    try { capture.silentSink.disconnect(); } catch (e) {}
+    try {
+      if (capture.audioContext && capture.audioContext.state !== 'closed') {
+        await capture.audioContext.close();
+      }
+    } catch (e) {}
+    try { capture.stream.getTracks().forEach(track => track.stop()); } catch (e) {}
+    if (notifyMain && window.magicAPI.meetingCaptureStopped) {
+      window.magicAPI.meetingCaptureStopped(capture.meetingId);
+    }
+  }
+}
+
+function flushMeetingChunk(isFinal) {
+  if (!meetingCapture || meetingCapture.chunks.length === 0) return;
+  const chunks = meetingCapture.chunks;
+  const totalLength = chunks.reduce((acc, c) => acc + c.length, 0);
+  if (totalLength < 16000 * 2 && !isFinal) return;
+
+  const pcmData = new Float32Array(totalLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    pcmData.set(chunk, offset);
+    offset += chunk.length;
+  }
+
+  const startedAt = new Date(meetingCapture.chunkStartedAt).toISOString();
+  const endedAt = new Date().toISOString();
+  const durationMs = Math.round((totalLength / 16000) * 1000);
+  const fingerprint = createAudioFingerprint(pcmData, 16000);
+  const wavBuffer = encodeWAV(pcmData, 16000);
+
+  window.magicAPI.sendMeetingAudioChunk({
+    meetingId: meetingCapture.meetingId,
+    audioBuffer: wavBuffer,
+    startedAt,
+    endedAt,
+    durationMs,
+    fingerprint,
+    final: !!isFinal
+  });
+
+  meetingCapture.chunks = [];
+  meetingCapture.sampleCount = 0;
+  meetingCapture.chunkStartedAt = Date.now();
+}
+
+function createAudioFingerprint(samples, sampleRate) {
+  if (!samples || samples.length === 0) return null;
+  let sum = 0;
+  let zc = 0;
+  let prev = samples[0];
+  let low = 0;
+  let high = 0;
+  const stride = Math.max(1, Math.floor(samples.length / 6000));
+
+  for (let i = 0; i < samples.length; i += stride) {
+    const s = samples[i];
+    sum += s * s;
+    if ((s >= 0 && prev < 0) || (s < 0 && prev >= 0)) zc++;
+    const diff = Math.abs(s - prev);
+    if (diff < 0.04) low += diff;
+    else high += diff;
+    prev = s;
+  }
+
+  const n = Math.ceil(samples.length / stride);
+  return {
+    rms: Math.min(1, Math.sqrt(sum / Math.max(1, n)) * 8),
+    zcr: Math.min(1, zc / Math.max(1, n)),
+    centroid: Math.min(1, high / Math.max(0.001, high + low)),
+    flatness: Math.min(1, Math.abs(high - low) / Math.max(0.001, high + low)),
+    sampleRate
+  };
+}
+
 async function getMicStream() {
   if (persistentMicStream) {
     const tracks = persistentMicStream.getTracks();
@@ -1054,19 +1531,8 @@ async function getMicStream() {
       return persistentMicStream;
     }
   }
-  const selectedMic = currentSettings.microphone && currentSettings.microphone !== 'default'
-    ? { exact: currentSettings.microphone }
-    : undefined;
-
   persistentMicStream = await navigator.mediaDevices.getUserMedia({
-    audio: {
-      ...(selectedMic ? { deviceId: selectedMic } : {}),
-      channelCount: 1,
-      sampleRate: 16000,
-      echoCancellation: true,
-      noiseSuppression: true,
-      autoGainControl: true
-    }
+    audio: getSelectedAudioConstraints()
   });
   return persistentMicStream;
 }
@@ -1412,10 +1878,19 @@ function formatTime(isoString) {
   return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
 }
 
+function formatDateTime(isoString) {
+  const date = new Date(isoString);
+  return date.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+
 function escapeHtml(text) {
   const div = document.createElement('div');
   div.textContent = text;
   return div.innerHTML;
+}
+
+function escapeAttr(text) {
+  return escapeHtml(text).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 let toastTimeout = null;
