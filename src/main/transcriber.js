@@ -433,6 +433,7 @@ class Transcriber {
         '--no-timestamps',
         '-t', String(threadCount),
         '-bs', '1', // Greedy decoding for raw speed
+        '-bo', '1',
         '-mc', this.getMaxContext(options, modelName)
       ];
 
