@@ -232,7 +232,9 @@ async function handleAudioData(event, audioBuffer, recordDuration) {
       }
       text = await transcriber.transcribe(audioBuffer, {
         model: modelName,
-        language: language
+        language: language,
+        acceleration: settings.localAcceleration || 'auto',
+        preferGpu: settings.preferGpuForLargeModels !== false
       });
       usedEngine = 'local';
     }
@@ -421,6 +423,16 @@ function setupIPC() {
     return await transcriber.setup((progress) => {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('setup-progress', progress);
+      }
+    });
+  });
+
+  ipcMain.handle('get-acceleration-status', () => transcriber.getAccelerationStatus());
+
+  ipcMain.handle('setup-gpu-acceleration', async () => {
+    return await transcriber.setupCuda((progress) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('gpu-setup-progress', progress);
       }
     });
   });

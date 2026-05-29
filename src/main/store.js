@@ -17,9 +17,11 @@ const DEFAULTS = {
   settings: {
     // General
     hotkey: process.platform === 'darwin' ? 'Option+Space' : 'Ctrl+Shift+Space',
-    model: 'ggml-base.en.bin',
+    model: 'ggml-large-v3-turbo.bin',
     language: 'en',
     microphone: 'default',
+    localAcceleration: 'auto',
+    preferGpuForLargeModels: true,
 
     // System
     launchAtLogin: false,
@@ -82,7 +84,7 @@ class SettingsStore {
   load() {
     try {
       if (fs.existsSync(this.filePath)) {
-        const raw = fs.readFileSync(this.filePath, 'utf-8');
+        const raw = fs.readFileSync(this.filePath, 'utf-8').replace(/^\uFEFF/, '');
         this.data = JSON.parse(raw);
         logger.debug('store', 'Settings loaded', { path: this.filePath });
       } else {

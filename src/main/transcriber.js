@@ -38,9 +38,11 @@ class Transcriber {
   constructor(binDir, modelsDir) {
     this.binDir = binDir;
     this.modelsDir = modelsDir;
+    this.cudaBinDir = path.join(this.binDir, 'cuda');
     this.binaryPath = this.getBinaryPath();
 
     fs.mkdirSync(this.binDir, { recursive: true });
+    fs.mkdirSync(this.cudaBinDir, { recursive: true });
     fs.mkdirSync(this.modelsDir, { recursive: true });
 
     logger.info('transcriber', 'Transcriber initialized', {
@@ -56,12 +58,35 @@ class Transcriber {
     return path.join(this.binDir, binaryName);
   }
 
+  getCudaBinaryPath() {
+    const binaryName = process.platform === 'win32' ? 'whisper-cli.exe' : 'whisper-cli';
+    return path.join(this.cudaBinDir, binaryName);
+  }
+
   binaryExists() {
     return fs.existsSync(this.binaryPath);
   }
 
+  cudaBinaryExists() {
+    return fs.existsSync(this.getCudaBinaryPath());
+  }
+
   isReady() {
     return this.binaryExists();
+  }
+
+  getAccelerationStatus() {
+    const cudaFiles = this.cudaBinaryExists()
+      ? fs.readdirSync(this.cudaBinDir).filter(file => file.toLowerCase().endsWith('.dll') || file.toLowerCase().endsWith('.exe'))
+      : [];
+
+    return {
+      cpuReady: this.binaryExists(),
+      cudaReady: this.cudaBinaryExists(),
+      cudaBinDir: this.cudaBinDir,
+      cudaFiles,
+      activeDefault: this.cudaBinaryExists() ? 'cuda' : 'cpu'
+    };
   }
 
   // ─── Setup Pipeline ───────────────────────────────────────
@@ -200,6 +225,79 @@ class Transcriber {
     if (progressCallback) progressCallback({ stage: 'binary', message: 'Binary installed successfully!' });
   }
 
+  async setupCuda(progressCallback) {
+    if (process.platform !== 'win32') {
+      throw new Error('CUDA acceleration setup is currently supported only on Windows.');
+    }
+
+    logger.info('transcriber', 'Starting CUDA backend setup...');
+    if (progressCallback) progressCallback({ stage: 'gpu', message: 'Finding CUDA whisper.cpp backend...' });
+
+    const releaseInfo = await this.fetchJSON('https://api.github.com/repos/ggml-org/whisper.cpp/releases/latest');
+    const tag = releaseInfo.tag_name;
+    const assets = releaseInfo.assets || [];
+
+    const preferredAssets = [
+      /whisper-cublas-12\.[0-9.]+-bin-x64\.zip/i,
+      /whisper-cublas-11\.[0-9.]+-bin-x64\.zip/i
+    ];
+
+    let asset = null;
+    for (const pattern of preferredAssets) {
+      asset = assets.find(item => pattern.test(item.name));
+      if (asset) break;
+    }
+
+    if (!asset) {
+      throw new Error(`No CUDA/cuBLAS Windows x64 backend found in whisper.cpp ${tag}.`);
+    }
+
+    logger.info('transcriber', 'Downloading CUDA backend', { tag, asset: asset.name });
+    if (progressCallback) progressCallback({ stage: 'gpu', message: `Downloading ${asset.name}...` });
+
+    const tmpFile = path.join(os.tmpdir(), asset.name);
+    const extractDir = path.join(os.tmpdir(), `magicwhisper-cuda-${Date.now()}`);
+
+    await this.downloadFile(asset.browser_download_url, tmpFile);
+
+    try {
+      if (progressCallback) progressCallback({ stage: 'gpu', message: 'Extracting CUDA backend...' });
+      if (fs.existsSync(extractDir)) fs.rmSync(extractDir, { recursive: true, force: true });
+      fs.mkdirSync(extractDir, { recursive: true });
+
+      await this.execShell(`powershell -NoProfile -Command "Expand-Archive -Force -Path '${tmpFile}' -DestinationPath '${extractDir}'"`);
+
+      if (fs.existsSync(this.cudaBinDir)) {
+        fs.rmSync(this.cudaBinDir, { recursive: true, force: true });
+      }
+      fs.mkdirSync(this.cudaBinDir, { recursive: true });
+
+      const binary = this.findBinaryInDir(extractDir);
+      if (!binary) throw new Error('Could not find whisper-cli.exe in CUDA backend archive.');
+
+      const binaryDir = path.dirname(binary);
+      const entries = fs.readdirSync(binaryDir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isFile()) continue;
+        const source = path.join(binaryDir, entry.name);
+        const lower = entry.name.toLowerCase();
+        if (lower.endsWith('.exe') || lower.endsWith('.dll')) {
+          fs.copyFileSync(source, path.join(this.cudaBinDir, entry.name));
+        }
+      }
+
+      logger.info('transcriber', 'CUDA backend installed successfully', {
+        path: this.getCudaBinaryPath(),
+        files: fs.readdirSync(this.cudaBinDir)
+      });
+      if (progressCallback) progressCallback({ stage: 'done', message: 'CUDA backend installed successfully!' });
+      return true;
+    } finally {
+      try { fs.unlinkSync(tmpFile); } catch (e) {}
+      try { fs.rmSync(extractDir, { recursive: true, force: true }); } catch (e) {}
+    }
+  }
+
   findBinaryInDir(dir) {
     const names = process.platform === 'win32'
       ? ['whisper-cli.exe', 'whisper-whisper-cli.exe', 'main.exe', 'whisper.exe']
@@ -324,7 +422,10 @@ class Transcriber {
     });
 
     try {
-      const threadCount = Math.max(1, Math.floor(os.cpus().length / 2));
+      const backend = this.resolveBackend(options);
+      const binaryPath = backend === 'cuda' ? this.getCudaBinaryPath() : this.binaryPath;
+      const binaryDir = path.dirname(binaryPath);
+      const threadCount = this.getThreadCount(options, backend);
       const args = [
         '-m', modelPath,
         '-f', tempWav,
@@ -332,10 +433,20 @@ class Transcriber {
         '--no-timestamps',
         '-t', String(threadCount),
         '-bs', '1', // Greedy decoding for raw speed
-        '-mc', '512' // Max context constraint
+        '-mc', this.getMaxContext(options, modelName)
       ];
 
-      const output = await this.execCmd(this.binaryPath, args);
+      if (backend === 'cuda') {
+        args.push('-fa');
+      }
+
+      const output = await this.execCmd(binaryPath, args, {
+        env: {
+          ...SHELL_ENV,
+          PATH: `${binaryDir}${path.delimiter}${SHELL_ENV.PATH || ''}`,
+          CUDA_MODULE_LOADING: 'LAZY'
+        }
+      });
 
       let text = output
         .split('\n')
@@ -349,7 +460,8 @@ class Transcriber {
         textLength: text.length,
         wordCount: text.split(/\s+/).filter(Boolean).length,
         elapsedMs: elapsed,
-        model: modelName
+        model: modelName,
+        backend
       });
 
       return text;
@@ -357,6 +469,7 @@ class Transcriber {
       logger.error('transcriber', 'Transcription failed', {
         error: err.message,
         model: modelName,
+        backend: this.resolveBackend(options),
         elapsedMs: Date.now() - startTime
       });
       throw err;
@@ -366,6 +479,38 @@ class Transcriber {
   }
 
   // ─── Utility Methods ──────────────────────────────────────
+
+  resolveBackend(options = {}) {
+    const requested = options.acceleration || 'auto';
+    if (requested === 'cpu') return 'cpu';
+    if (requested === 'cuda') return this.cudaBinaryExists() ? 'cuda' : 'cpu';
+
+    const model = options.model || '';
+    const shouldPreferCuda = model.includes('large-v3') || model.includes('medium') || options.preferGpu === true;
+    return shouldPreferCuda && this.cudaBinaryExists() ? 'cuda' : 'cpu';
+  }
+
+  getThreadCount(options = {}, backend = 'cpu') {
+    if (Number.isInteger(options.threads) && options.threads > 0) {
+      return options.threads;
+    }
+
+    const logical = os.cpus().length;
+    if (backend === 'cuda') {
+      return Math.max(4, Math.min(8, Math.floor(logical / 2)));
+    }
+
+    return Math.max(1, Math.floor(logical / 2));
+  }
+
+  getMaxContext(options = {}, modelName = '') {
+    if (Number.isInteger(options.maxContext) && options.maxContext > 0) {
+      return String(options.maxContext);
+    }
+
+    if (modelName.includes('large-v3')) return '768';
+    return '512';
+  }
 
   async commandExists(cmd) {
     return new Promise((resolve) => {

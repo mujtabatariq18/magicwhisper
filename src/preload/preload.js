@@ -21,6 +21,8 @@ contextBridge.exposeInMainWorld('magicAPI', {
   // ─── Whisper Setup ────────────────────────────────────
   getWhisperStatus: () => ipcRenderer.invoke('get-whisper-status'),
   setupWhisper: () => ipcRenderer.invoke('setup-whisper'),
+  getAccelerationStatus: () => ipcRenderer.invoke('get-acceleration-status'),
+  setupGpuAcceleration: () => ipcRenderer.invoke('setup-gpu-acceleration'),
 
   // ─── Audio ────────────────────────────────────────────
   sendAudioData: (audioBuffer, duration) => ipcRenderer.send('audio-data', audioBuffer, duration),
@@ -129,6 +131,9 @@ contextBridge.exposeInMainWorld('magicAPI', {
   },
   onSetupProgress: (callback) => {
     ipcRenderer.on('setup-progress', (event, data) => callback(data));
+  },
+  onGpuSetupProgress: (callback) => {
+    ipcRenderer.on('gpu-setup-progress', (event, data) => callback(data));
   },
   onNeedsSetup: (callback) => {
     ipcRenderer.on('needs-setup', (event, needs) => callback(needs));

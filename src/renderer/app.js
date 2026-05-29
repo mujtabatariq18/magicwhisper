@@ -79,6 +79,7 @@ async function loadSettings() {
   setToggle('toggle-dev-mode', currentSettings.developerMode === true);
   setToggle('toggle-dev-syntax', currentSettings.developerSyntaxFormatting !== false);
   setToggle('toggle-dev-files', currentSettings.developerFileTagging !== false);
+  setToggle('toggle-prefer-gpu', currentSettings.preferGpuForLargeModels !== false);
 }
 
 function setToggle(id, value) {
@@ -183,6 +184,13 @@ function setupEventListeners() {
     }
   });
 
+  if (window.magicAPI.onGpuSetupProgress) {
+    window.magicAPI.onGpuSetupProgress((data) => {
+      const status = document.getElementById('gpu-status');
+      if (status) status.textContent = data.message || 'Installing GPU backend...';
+    });
+  }
+
   window.magicAPI.onNeedsSetup((needs) => {
     if (needs) document.getElementById('setup-overlay').classList.remove('hidden');
   });
@@ -240,7 +248,7 @@ function navigateTo(page) {
   if (page === 'dictionary') loadDictionary();
   if (page === 'snippets') loadSnippets();
   if (page === 'style') loadStyles();
-  if (page === 'settings-models') loadModels();
+  if (page === 'settings-models') { loadModels(); loadAccelerationStatus(); }
   if (page === 'settings-advanced') loadAdvancedInfo();
 }
 
@@ -505,6 +513,7 @@ async function loadModels() {
       document.getElementById('active-model-name').textContent = active.label;
       document.getElementById('active-model-desc').textContent = active.description;
     }
+    await loadAccelerationStatus();
   } catch (e) {}
 }
 
@@ -523,10 +532,54 @@ async function downloadModel(name, btn) {
   try {
     await window.magicAPI.downloadModel(name);
     btn.textContent = 'Done!';
+    if (name === 'ggml-large-v3-turbo.bin') {
+      await selectModel(name, 'Large V3 Turbo', 'Best accuracy, requires more RAM');
+    }
     setTimeout(() => loadModels(), 500);
   } catch (err) {
     btn.textContent = 'Failed';
     btn.disabled = false;
+  }
+}
+
+async function loadAccelerationStatus() {
+  if (!window.magicAPI.getAccelerationStatus) return;
+  try {
+    const status = await window.magicAPI.getAccelerationStatus();
+    const el = document.getElementById('gpu-status');
+    const btn = document.getElementById('gpu-setup-btn');
+    if (!el || !btn) return;
+
+    if (status.cudaReady) {
+      el.textContent = 'CUDA GPU backend installed. Large V3 Turbo will use the GPU automatically.';
+      btn.textContent = 'Reinstall GPU Backend';
+    } else {
+      el.textContent = 'CUDA GPU backend not installed. Large V3 Turbo will fall back to CPU until installed.';
+      btn.textContent = 'Install GPU Backend';
+    }
+  } catch (e) {}
+}
+
+async function setupGpuAcceleration() {
+  const btn = document.getElementById('gpu-setup-btn');
+  const status = document.getElementById('gpu-status');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Installing...';
+  }
+  if (status) status.textContent = 'Downloading CUDA GPU backend...';
+
+  try {
+    await window.magicAPI.setupGpuAcceleration();
+    await saveSetting('localAcceleration', 'auto');
+    await saveSetting('preferGpuForLargeModels', true);
+    await loadAccelerationStatus();
+    showToast('GPU backend installed');
+  } catch (err) {
+    if (status) status.textContent = `GPU setup failed: ${err.message}`;
+    showToast('GPU backend setup failed');
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }
 
@@ -974,7 +1027,7 @@ async function startSetup() {
       document.getElementById('model-progress-text').textContent = `Downloading... ${progress}%`;
     });
 
-    await window.magicAPI.downloadModel('ggml-base.en.bin');
+    await window.magicAPI.downloadModel(currentSettings.model || 'ggml-large-v3-turbo.bin');
 
     document.getElementById('step-model-status').textContent = 'Done';
     document.getElementById('step-model-status').style.color = 'var(--success)';
